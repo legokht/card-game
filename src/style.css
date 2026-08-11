@@ -1,15 +1,31 @@
-/* 프로토타입용 최소 스타일. 로직이 보이는 것이 목적이라 장식은 없다. */
+/*
+ * 촛불 켠 나무 탁자 위의 전투. 어두운 한 가지 화면으로 못박은 디자인이라
+ * 라이트/다크 분기 없이 모든 색을 명시적으로 칠한다.
+ */
 
 :root {
-  --bg: #16171c;
-  --panel: #21232b;
-  --line: #343845;
-  --text: #e6e7ea;
-  --muted: #9297a5;
-  --enemy: #b2453c;
-  --telegraph: #6b5230;
-  --player: #35618e;
-  --accent: #d8a24a;
+  --ground: #14100b;
+  --table: #1c1710;
+  --table-hi: #241d14;
+  --edge: #382e21;
+  --edge-soft: #29221a;
+
+  --bone: #ece2cd;
+  --dim: #9d8f76;
+  --faint: #6b6152;
+
+  --ember: #cf8434;
+  --blood: #8e3b31;
+  --blood-hi: #a8483c;
+  --steel: #46626f;
+  --steel-hi: #567a8a;
+  --moss: #6d8b47;
+
+  --serif: Georgia, 'Iowan Old Style', 'Times New Roman', serif;
+  --sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+
+  --slot-h: 74px;
 }
 
 * {
@@ -18,236 +34,571 @@
 
 body {
   margin: 0;
-  padding: 20px;
-  background: var(--bg);
-  color: var(--text);
-  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  padding: 22px 16px 40px;
+  background: var(--ground);
+  color: var(--bone);
+  font-family: var(--sans);
   font-size: 14px;
+  line-height: 1.5;
 }
 
 #app {
-  max-width: 760px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 660px;
   margin: 0 auto;
 }
 
-.hud {
+b {
+  font-weight: 600;
+}
+
+/* ---------- 상단 바 ---------- */
+
+.bar {
   display: flex;
-  gap: 16px;
   align-items: center;
+  gap: 20px;
   flex-wrap: wrap;
-  padding: 10px 14px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 6px;
+  padding: 12px 16px;
+  background: var(--table);
+  border: 1px solid var(--edge);
+  border-radius: 3px;
 }
 
-.hud__item {
-  color: var(--muted);
+.bar__label {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
 }
 
-.hud__item b {
-  color: var(--text);
+.bar__turn b,
+.vitals b,
+.counts b {
+  font-family: var(--mono);
   font-variant-numeric: tabular-nums;
 }
 
-.hud .btn--ghost {
+.bar__turn b {
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+.vitals {
+  min-width: 108px;
+}
+
+.vitals__row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.vitals b {
+  font-size: 16px;
+}
+
+.of {
+  color: var(--faint);
+  font-size: 12px;
+}
+
+.meter {
+  height: 3px;
+  margin-top: 5px;
+  background: var(--edge-soft);
+  overflow: hidden;
+}
+
+.meter i {
+  display: block;
+  height: 100%;
+  background: var(--blood-hi);
+  transition: width 0.25s ease;
+}
+
+.pips__dots {
+  display: flex;
+  gap: 5px;
+  margin-top: 5px;
+}
+
+.pips__dots i {
+  width: 11px;
+  height: 11px;
+  border: 1px solid var(--edge);
+  border-radius: 50%;
+  background: transparent;
+}
+
+.pips__dots i.is-lit {
+  background: var(--ember);
+  border-color: var(--ember);
+  box-shadow: 0 0 7px rgba(207, 132, 52, 0.5);
+}
+
+.counts {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.bar .btn--quiet {
   margin-left: auto;
 }
 
+/* ---------- 승패 배너 ---------- */
+
 .banner {
-  margin-top: 12px;
-  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 16px;
+  border: 1px solid;
+  border-radius: 3px;
   text-align: center;
-  font-size: 20px;
-  font-weight: 700;
-  border-radius: 6px;
+}
+
+.banner__word {
+  font-family: var(--serif);
+  font-size: 30px;
+  letter-spacing: 0.16em;
+  text-indent: 0.16em;
+}
+
+.banner__sub {
+  font-size: 12px;
+  color: var(--dim);
 }
 
 .banner--win {
-  background: #22402c;
-  color: #7fd39b;
+  background: #1d2416;
+  border-color: var(--moss);
+  color: #a9c47c;
 }
 
 .banner--lose {
-  background: #40242a;
-  color: #e08b90;
+  background: #251411;
+  border-color: var(--blood);
+  color: #d08a80;
 }
 
-.board {
-  margin-top: 16px;
+/* ---------- 전장 ---------- */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.board__label {
-  margin: 14px 0 5px;
+.zone {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.zone__name {
+  font-family: var(--serif);
+  font-size: 13px;
+  letter-spacing: 0.1em;
+}
+
+.zone--enemy .zone__name {
+  color: var(--blood-hi);
+}
+
+.zone--mine .zone__name {
+  color: var(--steel-hi);
+}
+
+.zone__note {
   font-size: 11px;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-  text-transform: uppercase;
+  color: var(--faint);
 }
 
-.row {
+.lanes {
   display: grid;
   grid-template-columns: repeat(var(--lanes, 3), 1fr);
   gap: 8px;
 }
 
-.cell {
-  min-height: 78px;
-  border: 1px dashed var(--line);
-  border-radius: 6px;
+/* 레인은 세로 열이다. 예고 → 적 → 내 유닛이 한 줄기로 읽혀야 한다. */
+.lane {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 22px 6px 6px;
+  background: var(--table);
+  border: 1px solid var(--edge-soft);
+  border-radius: 3px;
+}
+
+.lane.is-engaged {
+  border-color: var(--edge);
+  background: var(--table-hi);
+}
+
+.lane.is-leaking {
+  border-color: var(--blood);
+  background: #201410;
+}
+
+.lane__no {
+  position: absolute;
+  top: 5px;
+  left: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--faint);
+}
+
+/* 적이 넘어오는 경계선. */
+.lane__line {
+  height: 1px;
+  margin: 3px -6px;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--edge) 0 5px,
+    transparent 5px 10px
+  );
+}
+
+.lane.is-leaking .lane__line {
+  background: var(--blood);
+}
+
+.slot {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
-  color: var(--muted);
+  min-height: var(--slot-h);
+  padding: 0;
+  border: 1px dashed var(--edge-soft);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--faint);
+  font: inherit;
 }
 
-.cell--filled {
-  border-style: solid;
-  padding: 4px;
+.slot.is-filled {
+  border: none;
 }
 
-.cell--target {
-  border-color: var(--accent);
-  color: var(--accent);
+/* 예고는 아직 멀리 있다 — 실제 적보다 낮게 깔아 원근을 준다. */
+.slot--telegraph {
+  min-height: calc(var(--slot-h) * 0.62);
+}
+
+.slot--telegraph .face {
+  min-height: 0;
+  padding: 5px 4px;
+  gap: 3px;
+}
+
+.slot--telegraph .face__name {
+  font-size: 12.5px;
+}
+
+.slot--telegraph.is-empty,
+.slot--enemy.is-empty,
+.slot--player.is-empty {
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.slot.is-target {
+  border: 1px solid var(--ember);
+  background: rgba(207, 132, 52, 0.1);
+  color: var(--ember);
   cursor: pointer;
-  background: rgba(216, 162, 74, 0.08);
+  transition: background 0.15s ease;
 }
 
-.cell--target:hover {
-  background: rgba(216, 162, 74, 0.18);
+.slot.is-target:hover,
+.slot.is-target:focus-visible {
+  background: rgba(207, 132, 52, 0.22);
+  outline: none;
 }
 
-.card {
+.slot__cue {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+}
+
+/* ---------- 카드 얼굴 ---------- */
+
+.face {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   width: 100%;
-  padding: 8px 6px;
-  border-radius: 4px;
+  height: 100%;
+  min-height: var(--slot-h);
+  padding: 8px 4px;
+  border-radius: 2px;
   text-align: center;
 }
 
-.card--enemy {
-  background: var(--enemy);
+.face__name {
+  font-family: var(--serif);
+  font-size: 14px;
+  color: var(--bone);
 }
 
-.card--telegraph {
-  background: var(--telegraph);
-  opacity: 0.85;
+.face--enemy {
+  background: linear-gradient(180deg, var(--blood-hi), var(--blood));
+  border: 1px solid #b05244;
 }
 
-.card--player {
-  background: var(--player);
+/* 예고는 아직 도착하지 않았다 — 윤곽만 남기고 비워 둔다. */
+.face--telegraph {
+  background: rgba(142, 59, 49, 0.16);
+  border: 1px dashed var(--blood);
 }
 
-.card__name {
-  font-weight: 600;
-  margin-bottom: 4px;
+.face--telegraph .face__name {
+  color: #c98c83;
 }
 
-.card__stats {
+.face--player {
+  background: linear-gradient(180deg, var(--steel-hi), var(--steel));
+  border: 1px solid #6a90a1;
+}
+
+.stats {
   display: flex;
-  justify-content: center;
-  gap: 10px;
-  font-size: 12px;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
+
+.stat {
+  padding: 1px 6px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--bone);
+}
+
+.stat--atk::before {
+  content: '공 ';
+  color: var(--dim);
+}
+
+.stat--hp::before {
+  content: '체 ';
+  color: var(--dim);
+}
+
+/* ---------- 조작부 ---------- */
 
 .controls {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin: 18px 0 10px;
+  gap: 14px;
+  flex-wrap: wrap;
 }
 
 .btn {
-  padding: 8px 18px;
+  padding: 9px 20px;
+  font-family: var(--sans);
   font-size: 14px;
   font-weight: 600;
-  color: #1a1b20;
-  background: var(--accent);
-  border: none;
-  border-radius: 5px;
+  color: #1a1409;
+  background: var(--ember);
+  border: 1px solid #e09a4c;
+  border-radius: 2px;
   cursor: pointer;
 }
 
+.btn:hover:not(:disabled) {
+  background: #dd9042;
+}
+
 .btn:disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: default;
 }
 
-.btn--ghost {
+.btn--quiet {
   padding: 5px 12px;
-  font-size: 12px;
-  color: var(--text);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--dim);
   background: transparent;
-  border: 1px solid var(--line);
+  border-color: var(--edge);
+}
+
+.btn--quiet:hover {
+  color: var(--bone);
+  background: var(--table-hi);
+  border-color: var(--dim);
+}
+
+.btn:focus-visible,
+.handcard:focus-visible {
+  outline: 2px solid var(--ember);
+  outline-offset: 2px;
+}
+
+.threat {
+  font-size: 12px;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.threat--safe {
+  color: var(--faint);
+}
+
+.threat--warn {
+  color: #d9a05e;
+}
+
+.threat--lethal {
+  color: #e0796c;
+  font-weight: 600;
 }
 
 .hint {
-  color: var(--muted);
+  margin-left: auto;
   font-size: 12px;
+  color: var(--faint);
 }
+
+/* ---------- 손패 ---------- */
 
 .hand {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  min-height: 90px;
+  min-height: 92px;
 }
 
-.hand-card {
+.handcard {
   position: relative;
-  width: 92px;
-  padding: 10px 6px;
-  color: var(--text);
-  background: var(--player);
-  border: 2px solid transparent;
-  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 94px;
+  padding: 14px 6px 10px;
+  background: linear-gradient(180deg, var(--steel-hi), var(--steel));
+  border: 1px solid #6a90a1;
+  border-radius: 2px;
   cursor: pointer;
-  font-family: inherit;
-  font-size: 13px;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease;
 }
 
-.hand-card--selected {
-  border-color: var(--accent);
+.handcard:hover {
+  transform: translateY(-3px);
 }
 
-.hand-card--broke {
-  opacity: 0.45;
+.handcard.is-selected {
+  border-color: var(--ember);
+  box-shadow: 0 0 0 2px var(--ember);
+  transform: translateY(-5px);
 }
 
-.hand-card__cost {
+.handcard.is-broke {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.handcard.is-broke:hover {
+  transform: none;
+}
+
+.handcard__cost {
   position: absolute;
-  top: -7px;
-  left: -7px;
-  width: 21px;
-  height: 21px;
-  line-height: 21px;
-  text-align: center;
+  top: -8px;
+  left: -8px;
+  width: 22px;
+  height: 22px;
+  font-family: var(--mono);
   font-size: 12px;
   font-weight: 700;
-  color: #1a1b20;
-  background: var(--accent);
+  line-height: 21px;
+  text-align: center;
+  color: #1a1409;
+  background: var(--ember);
+  border: 1px solid #e5a45c;
   border-radius: 50%;
 }
 
 .hand__empty {
-  color: var(--muted);
+  margin: 0;
+  align-self: center;
   font-size: 12px;
+  color: var(--faint);
 }
 
-.log {
-  margin-top: 18px;
-  padding: 10px 12px;
-  max-height: 190px;
+/* ---------- 전투 기록 ---------- */
+
+.ledger {
+  max-height: 168px;
   overflow-y: auto;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  font-size: 12px;
-  line-height: 1.7;
-  color: var(--muted);
+  padding: 10px 14px;
+  background: var(--table);
+  border: 1px solid var(--edge-soft);
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.8;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
 }
 
-.log__line {
-  font-variant-numeric: tabular-nums;
+.ledger p {
+  margin: 0;
+}
+
+.ledger__turn {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--edge-soft);
+  color: var(--ember);
+  letter-spacing: 0.08em;
+}
+
+.ledger p:first-child {
+  margin-top: 0;
+  border-top: none;
+}
+
+@media (max-width: 460px) {
+  :root {
+    --slot-h: 62px;
+  }
+
+  body {
+    padding: 14px 10px 28px;
+  }
+
+  .bar {
+    gap: 14px;
+    padding: 10px 12px;
+  }
+
+  .handcard {
+    width: calc(33.333% - 6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
 }
