@@ -189,6 +189,93 @@ b {
   color: #d08a80;
 }
 
+/* ---------- 웨이브 정보 ---------- */
+
+/*
+ * 이 시스템의 핵심 판단 도구. 공개된 총량과 내가 깔아둔 전력을 나란히 두고
+ * 그 차이를 같이 보여줘야 "얼마나 여유를 두고 배분할지"가 판단된다.
+ */
+.wavehead {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+  padding: 14px 18px;
+  background: var(--table);
+  border: 1px solid var(--edge);
+  border-left: 3px solid var(--blood-hi);
+  border-radius: 3px;
+}
+
+.wavehead.is-revealed {
+  border-left-color: var(--ember);
+}
+
+.wavehead__main,
+.wavehead__mine {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.wavehead__mine {
+  margin-left: auto;
+}
+
+.wavehead__label {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.wavehead__total {
+  font-family: var(--serif);
+  font-size: 40px;
+  line-height: 1;
+  color: var(--blood-hi);
+}
+
+.wavehead__split {
+  font-family: var(--mono);
+  font-size: 26px;
+  letter-spacing: 0.06em;
+  color: var(--ember);
+  font-variant-numeric: tabular-nums;
+}
+
+.wavehead__sum {
+  font-family: var(--mono);
+  font-size: 22px;
+  color: var(--steel-hi);
+  font-variant-numeric: tabular-nums;
+}
+
+.wavehead__hint,
+.wavehead__carry {
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.margin {
+  padding: 2px 8px;
+  border-radius: 2px;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.margin.is-up {
+  color: #a9c47c;
+  background: rgba(109, 139, 71, 0.16);
+}
+
+.margin.is-down {
+  color: #e0796c;
+  background: rgba(142, 59, 49, 0.2);
+}
+
 /* ---------- 전장 ---------- */
 
 .field {
@@ -241,12 +328,8 @@ b {
   border-radius: 3px;
 }
 
-.lane.is-engaged {
-  border-color: var(--edge);
-  background: var(--table-hi);
-}
-
-.lane.is-leaking {
+/* 분배가 공개됐는데 막을 유닛이 없는 레인. */
+.lane.is-exposed {
   border-color: var(--blood);
   background: #201410;
 }
@@ -271,8 +354,29 @@ b {
   );
 }
 
-.lane.is-leaking .lane__line {
+.lane.is-exposed .lane__line {
   background: var(--blood);
+}
+
+/* 레인별 배치 전력. 총량과 견주는 값이라 눈에 걸려야 한다. */
+.lane__power {
+  margin-top: 2px;
+  padding-top: 5px;
+  border-top: 1px solid var(--edge-soft);
+  text-align: center;
+  font-size: 10px;
+  color: var(--faint);
+}
+
+.lane__power b {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.lane__power.is-set b {
+  color: var(--steel-hi);
 }
 
 .slot {
@@ -292,22 +396,35 @@ b {
   border: none;
 }
 
-/* 예고는 아직 멀리 있다 — 실제 적보다 낮게 깔아 원근을 준다. */
-.slot--telegraph {
-  min-height: calc(var(--slot-h) * 0.62);
+/* 이번 웨이브 몫. 아직 확정 전이면 숫자 대신 물음표만 보인다. */
+.slot--incoming {
+  min-height: calc(var(--slot-h) * 0.66);
 }
 
-.slot--telegraph .face {
+.slot--incoming .face {
   min-height: 0;
-  padding: 5px 4px;
-  gap: 3px;
+  padding: 6px 4px;
 }
 
-.slot--telegraph .face__name {
-  font-size: 12.5px;
+.slot--incoming.is-hidden {
+  border-style: dashed;
+  border-color: var(--edge);
+  background: rgba(0, 0, 0, 0.28);
 }
 
-.slot--telegraph.is-empty,
+.unknown {
+  font-family: var(--serif);
+  font-size: 24px;
+  color: var(--dim);
+}
+
+.zero {
+  font-family: var(--mono);
+  font-size: 15px;
+  color: var(--faint);
+}
+
+.slot--incoming.is-empty,
 .slot--enemy.is-empty,
 .slot--player.is-empty {
   background: rgba(0, 0, 0, 0.18);
@@ -359,14 +476,23 @@ b {
   border: 1px solid #b05244;
 }
 
-/* 예고는 아직 도착하지 않았다 — 윤곽만 남기고 비워 둔다. */
-.face--telegraph {
-  background: rgba(142, 59, 49, 0.16);
-  border: 1px dashed var(--blood);
+/* 공개된 이번 웨이브 몫. 아직 내려오지 않았으므로 채우지 않는다. */
+.face--incoming {
+  background: rgba(142, 59, 49, 0.2);
+  border: 1px dashed var(--blood-hi);
 }
 
-.face--telegraph .face__name {
-  color: #c98c83;
+/* 적은 전력 숫자 하나가 곧 정체다. 이름 대신 숫자를 크게 세운다. */
+.face__power {
+  font-family: var(--serif);
+  font-size: 22px;
+  line-height: 1;
+  color: #eab5ad;
+}
+
+.face--enemy .face__power {
+  color: var(--bone);
+  font-size: 20px;
 }
 
 .face--player {
@@ -519,6 +645,11 @@ b {
 
 .handcard.is-broke:hover {
   transform: none;
+}
+
+.handcard__power {
+  font-size: 10px;
+  color: rgba(236, 226, 205, 0.75);
 }
 
 .handcard__cost {

@@ -1,5 +1,5 @@
 import './style.css';
-import { createCombat, endTurn, playCard, canPlayCard } from './engine/combat';
+import { canPlayCard, commitWave, createCombat, playCard, resolveWave } from './engine/combat';
 import { Rng } from './engine/rng';
 import { DEFAULT_CONFIG } from './data/cards';
 import { render } from './ui/render';
@@ -33,9 +33,13 @@ function draw(): void {
         selectedUid = null;
         draw();
       },
-      onEndTurn: () => {
-        endTurn(state, rng);
+      onCommit: () => {
+        commitWave(state, rng, DEFAULT_CONFIG.reactivity);
         selectedUid = null;
+        draw();
+      },
+      onResolve: () => {
+        resolveWave(state, DEFAULT_CONFIG);
         draw();
       },
       onRestart: () => start(),

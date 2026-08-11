@@ -1,30 +1,46 @@
 import type { Rng } from './rng';
-import type { CardDef, CardInstance, CombatConfig, CombatState, Lane } from './types';
+import { allocateWave } from './wave';
+import type {
+  CardDef,
+  CardInstance,
+  CombatConfig,
+  CombatState,
+  Lane,
+  LaneResult,
+  WaveRecord,
+} from './types';
 
 /**
  * 전투 규칙. DOM에 의존하지 않는 순수 로직이며, 무작위는 전부 인자로 받은
  * Rng를 통해서만 발생한다.
  *
- * 턴 흐름:
- *   1. 플레이어가 에너지를 써서 손패를 아래쪽 칸에 배치한다 (playCard)
- *   2. 턴 종료 (endTurn)
- *      a. 교전: 같은 레인의 적과 유닛이 동시에 서로를 때린다.
- *         막는 유닛이 없으면 플레이어 HP가 깎인다.
- *      b. 사망 처리 후 승패 판정
- *      c. 예고된 적이 아래로 내려온다
- *      d. 몬스터 덱에서 새 예고를 뽑는다
- *      e. 다음 턴: 1장 드로우, 에너지 리셋
+ * 웨이브 흐름:
+ *   1. [placing] 이번 웨이브의 총 전력만 공개된다. 분배는 숨긴 채로 플레이어가
+ *      에너지를 써서 손패를 배치한다.
+ *   2. commitWave() — 분배를 계산해 공개한다. 이때 배분은 플레이어 배치를
+ *      참조하므로, 배치를 끝내기 전에는 결정되지 않는다.
+ *   3. [revealed] 어디로 몇이 오는지 보이지만 아직 싸우지 않았다.
+ *   4. resolveWave() — 적이 내려와 교전하고, 다음 웨이브 총 전력이 공개된다.
  *
- * 예고가 교전 *뒤에* 내려오므로, 플레이어는 적이 필드에 서 있는 모습을 한 턴
- * 동안 보고 나서 대비할 수 있다.
+ * 적 유닛은 공격력 = 체력 = 배분된 전력이다. 숫자 하나가 곧 위협의 크기라,
+ * "7을 막으려면 얼마가 필요한가"를 바로 계산할 수 있다.
+ *
+ * 웨이브는 한 번 부딪히고 지나간다. 적을 필드에 남겨 두고 매 웨이브 증강하면
+ * 플레이어 공격력(0~5)으로는 전력 7 이상을 잡을 수 없어 그대로 죽음의 나선이
+ * 된다 (자동 플레이 400판 승률 0%). 대신 레인 전력이 위협을 얼마나 받아내는지로
+ * 결과가 갈리므로, 화면에 띄우는 "내 전력"이 곧 결과를 예측하는 숫자가 된다.
  */
 
 let uidCounter = 0;
 
-function instantiate(def: CardDef): CardInstance {
+function nextUid(): string {
   uidCounter += 1;
+  return `c${uidCounter}`;
+}
+
+function instantiate(def: CardDef): CardInstance {
   return {
-    uid: `c${uidCounter}`,
+    uid: nextUid(),
     defId: def.id,
     name: def.name,
     cost: def.cost,
@@ -34,35 +50,68 @@ function instantiate(def: CardDef): CardInstance {
   };
 }
 
+/** 배분된 전력으로 적 유닛을 만든다. 공격력 = 체력 = 전력. */
+function spawnEnemy(power: number): CardInstance {
+  return {
+    uid: nextUid(),
+    defId: 'wave',
+    name: `적 ${power}`,
+    cost: 0,
+    attack: power,
+    health: power,
+    maxHealth: power,
+  };
+}
+
 /** 테스트에서 uid를 예측 가능하게 만들기 위한 리셋. */
 export function resetUidCounter(): void {
   uidCounter = 0;
 }
 
 function emptyLane(): Lane {
-  return { enemy: null, telegraph: null, player: null };
+  return { incoming: null, player: null };
+}
+
+/**
+ * 레인의 플레이어 전력 = 배치된 유닛의 공격력 + 체력.
+ * 적 반응(얇은 레인 노리기)의 기준이자 UI에 표시되는 값이다.
+ */
+export function lanePlayerPower(lane: Lane): number {
+  return lane.player ? lane.player.attack + lane.player.health : 0;
+}
+
+export function playerPowerByLane(state: CombatState): number[] {
+  return state.lanes.map(lanePlayerPower);
+}
+
+export function totalPlayerPower(state: CombatState): number {
+  return playerPowerByLane(state).reduce((a, b) => a + b, 0);
 }
 
 export function createCombat(config: CombatConfig, rng: Rng): CombatState {
   const state: CombatState = {
-    turn: 1,
+    wave: 1,
+    waveCount: config.waveCount,
+    phase: 'placing',
     outcome: 'ongoing',
     playerHp: config.playerMaxHp,
     playerMaxHp: config.playerMaxHp,
     energy: config.maxEnergy,
     maxEnergy: config.maxEnergy,
     lanes: Array.from({ length: config.laneCount }, emptyLane),
+    waveTotal: config.totalPowerFor(1),
+    revealedAllocation: null,
+    revealedPatternName: null,
     hand: [],
     drawPile: rng.shuffle(config.playerDeck).map(instantiate),
-    monsterPile: rng.shuffle(config.monsterDeck).map(instantiate),
     log: [],
+    records: [],
   };
 
   for (let i = 0; i < config.startingHandSize; i++) draw(state);
 
-  // 1턴부터 예고가 보이도록 시작 시 한 장 깔아둔다.
-  telegraphNext(state, rng);
-  state.log.push(`전투 시작. 몬스터 덱 ${state.monsterPile.length + 1}장.`);
+  state.log.push(`전투 시작. ${config.waveCount}웨이브를 버티면 승리.`);
+  state.log.push(`1웨이브 총 전력 ${state.waveTotal} — 분배는 배치 확정 후 공개.`);
 
   return state;
 }
@@ -74,17 +123,6 @@ function draw(state: CombatState): CardInstance | null {
   return card;
 }
 
-/** 적이 없고 예고도 없는 레인에 몬스터 덱에서 한 장을 예고로 올린다. */
-function telegraphNext(state: CombatState, rng: Rng): void {
-  const openLanes = state.lanes.filter((l) => l.enemy === null && l.telegraph === null);
-  if (openLanes.length === 0) return;
-
-  const card = state.monsterPile.shift();
-  if (!card) return;
-
-  rng.pick(openLanes).telegraph = card;
-}
-
 export interface PlayCheck {
   ok: boolean;
   reason?: string;
@@ -92,7 +130,7 @@ export interface PlayCheck {
 
 /** 배치가 가능한지만 검사한다. UI에서 버튼 비활성화에 쓴다. */
 export function canPlayCard(state: CombatState, uid: string, laneIndex: number): PlayCheck {
-  if (state.outcome !== 'ongoing') return { ok: false, reason: '전투가 끝났다' };
+  if (state.phase !== 'placing') return { ok: false, reason: '지금은 배치 단계가 아니다' };
 
   const card = state.hand.find((c) => c.uid === uid);
   if (!card) return { ok: false, reason: '손패에 없는 카드다' };
@@ -125,99 +163,144 @@ export function playCard(state: CombatState, uid: string, laneIndex: number): vo
 }
 
 /**
- * 교전 처리. 같은 레인의 적과 유닛이 동시에 서로를 때린다.
- * 한쪽이 죽어도 그 턴의 반격은 들어간다.
+ * 배치를 확정하고 분배를 공개한다.
+ *
+ * 분배는 이 시점의 플레이어 배치를 참조하므로, 배치를 끝내기 전에는 결정되지
+ * 않는다. 즉 미리 계산해두고 숨기는 것이 아니라 확정 순간에 만들어진다.
  */
-function resolveCombat(state: CombatState): void {
+export function commitWave(state: CombatState, rng: Rng, reactivity: number): void {
+  if (state.phase !== 'placing') return;
+
+  const defense = playerPowerByLane(state);
+  const { pattern, perLane } = allocateWave(state.waveTotal, state.wave, defense, rng, reactivity);
+
+  perLane.forEach((power, i) => {
+    state.lanes[i]!.incoming = power > 0 ? spawnEnemy(power) : null;
+  });
+
+  state.revealedAllocation = perLane;
+  state.revealedPatternName = pattern.name;
+  state.phase = 'revealed';
+
+  const margin = defense.reduce((a, b) => a + b, 0) - state.waveTotal;
+  state.log.push(
+    `--- ${state.wave}웨이브 공개: ${pattern.name} ${perLane.join(' / ')} ` +
+      `(내 배치 ${defense.join(' / ')}, 여유 ${margin >= 0 ? '+' : ''}${margin}) ---`,
+  );
+}
+
+/**
+ * 교전 처리.
+ *
+ * 레인 전력(공격력 + 체력)이 그 레인이 받아낼 수 있는 양이다. 위협이 그보다
+ * 크면 넘치는 만큼만 관통한다 — 화면의 "내 전력 7 vs 오는 전력 9"가 곧
+ * "2 관통"으로 읽힌다.
+ *
+ * 유닛이 받는 피해는 공격력만큼 깎인다. 공격력은 날아오는 타격을 무디게 하고,
+ * 체력은 그 나머지를 버틴다.
+ */
+function resolveCombat(state: CombatState): LaneResult[] {
+  const results: LaneResult[] = [];
+
   state.lanes.forEach((lane, i) => {
-    const { enemy, player } = lane;
-    if (!enemy) return;
+    const { incoming, player } = lane;
+    const defense = lanePlayerPower(lane);
+
+    if (!incoming) {
+      results.push({ lane: i, threat: 0, defense, result: 'clear', leaked: 0 });
+      return;
+    }
+
+    const threat = incoming.attack;
+    lane.incoming = null;
 
     if (!player) {
-      state.playerHp -= enemy.attack;
-      state.log.push(`${i + 1}번 레인이 비어 ${enemy.name}의 공격이 관통 (HP -${enemy.attack})`);
+      state.playerHp -= threat;
+      state.log.push(`${i + 1}번 레인 관통 — ${threat} 피해 (막는 유닛 없음)`);
+      results.push({ lane: i, threat, defense, result: 'leaked', leaked: threat });
       return;
     }
 
-    // 동시 공격이므로 피해 계산 전에 양쪽 공격력을 먼저 읽는다.
-    const enemyAttack = enemy.attack;
-    const playerAttack = player.attack;
-    enemy.health -= playerAttack;
-    player.health -= enemyAttack;
-    // 로그에는 음수 체력이 보이지 않도록 0에서 자른다. 사망 판정은 실제 값으로 한다.
-    const shown = (c: CardInstance) => `${Math.max(0, c.health)}/${c.maxHealth}`;
+    const leaked = Math.max(0, threat - defense);
+    player.health -= Math.max(0, threat - player.attack);
+    const broken = player.health <= 0;
+
+    if (leaked > 0) state.playerHp -= leaked;
+
+    const result: LaneResult['result'] = leaked > 0 ? 'broken' : broken ? 'traded' : 'held';
     state.log.push(
-      `${i + 1}번 레인 교전: ${player.name}(${shown(player)}) vs ${enemy.name}(${shown(enemy)})`,
+      `${i + 1}번 레인 ${threat} 대 전력 ${defense} — ` +
+        (leaked > 0
+          ? `${player.name} 파괴, ${leaked} 관통`
+          : broken
+            ? `막아냈으나 ${player.name} 파괴`
+            : `${player.name} 버팀 (체력 ${player.health}/${player.maxHealth})`),
     );
+
+    if (broken) lane.player = null;
+    results.push({ lane: i, threat, defense, result, leaked });
   });
 
-  // 사망 처리는 모든 레인의 교전이 끝난 뒤에 한 번에 한다.
-  state.lanes.forEach((lane, i) => {
-    if (lane.enemy && lane.enemy.health <= 0) {
-      state.log.push(`${lane.enemy.name} 격파 (${i + 1}번 레인)`);
-      lane.enemy = null;
-    }
-    if (lane.player && lane.player.health <= 0) {
-      state.log.push(`${lane.player.name} 파괴됨 (${i + 1}번 레인)`);
-      lane.player = null;
-    }
-  });
+  return results;
 }
 
-/** 예고된 적을 아래로 내린다. 적 칸이 아직 차 있으면 예고 상태로 남는다. */
-function descendTelegraphs(state: CombatState): void {
-  state.lanes.forEach((lane, i) => {
-    if (!lane.telegraph) return;
-    if (lane.enemy) {
-      state.log.push(`${i + 1}번 레인이 막혀 ${lane.telegraph.name}이(가) 대기한다`);
-      return;
-    }
-    lane.enemy = lane.telegraph;
-    lane.telegraph = null;
-    state.log.push(`${lane.enemy.name}이(가) ${i + 1}번 레인으로 내려왔다`);
-  });
+function finish(state: CombatState, outcome: 'victory' | 'defeat', message: string): void {
+  state.outcome = outcome;
+  state.phase = 'over';
+  state.log.push(message);
 }
 
-function fieldIsClear(state: CombatState): boolean {
-  return state.lanes.every((l) => l.enemy === null && l.telegraph === null);
-}
+/** 공개된 분배대로 교전을 진행하고 다음 웨이브를 준비한다. */
+export function resolveWave(state: CombatState, config: CombatConfig): void {
+  if (state.phase !== 'revealed') return;
 
-function updateOutcome(state: CombatState): void {
-  if (state.outcome !== 'ongoing') return;
+  const hpBefore = state.playerHp;
+  const defense = playerPowerByLane(state);
+  const allocation = state.revealedAllocation ?? state.lanes.map(() => 0);
+
+  const laneResults = resolveCombat(state);
+
+  const record: WaveRecord = {
+    wave: state.wave,
+    total: state.waveTotal,
+    patternId: state.revealedPatternName ?? '',
+    patternName: state.revealedPatternName ?? '',
+    allocation,
+    playerPower: defense,
+    margin: defense.reduce((a, b) => a + b, 0) - state.waveTotal,
+    lanes: laneResults,
+    damageTaken: hpBefore - state.playerHp,
+  };
+  state.records.push(record);
 
   if (state.playerHp <= 0) {
     state.playerHp = 0;
-    state.outcome = 'defeat';
-    state.log.push('패배: 플레이어 HP가 0이 되었다.');
+    finish(state, 'defeat', '패배: 방어선이 무너졌다.');
     return;
   }
 
-  if (state.monsterPile.length === 0 && fieldIsClear(state)) {
-    state.outcome = 'victory';
-    state.log.push('승리: 몬스터 덱이 소진되고 필드가 정리되었다.');
+  if (state.wave >= state.waveCount) {
+    finish(state, 'victory', `승리: ${state.waveCount}웨이브를 모두 버텼다.`);
+    return;
   }
-}
 
-/** 턴을 종료하고 교전 → 예고 → 다음 턴까지 진행한다. */
-export function endTurn(state: CombatState, rng: Rng): void {
-  if (state.outcome !== 'ongoing') return;
-
-  state.log.push(`--- ${state.turn}턴 교전 ---`);
-  resolveCombat(state);
-  updateOutcome(state);
-  if (state.outcome !== 'ongoing') return;
-
-  descendTelegraphs(state);
-  telegraphNext(state, rng);
-
-  // 예고와 필드가 모두 빈 채로 몬스터 덱까지 소진됐다면 이 시점에 승리한다.
-  updateOutcome(state);
-  if (state.outcome !== 'ongoing') return;
-
-  state.turn += 1;
+  // 다음 웨이브 준비.
+  state.wave += 1;
+  state.phase = 'placing';
+  state.revealedAllocation = null;
+  state.revealedPatternName = null;
   state.energy = state.maxEnergy;
+  state.waveTotal = config.totalPowerFor(state.wave);
+
   const drawn = draw(state);
   state.log.push(
-    drawn ? `${state.turn}턴 시작. ${drawn.name} 드로우.` : `${state.turn}턴 시작. 덱이 비었다.`,
+    `${state.wave}웨이브 총 전력 ${state.waveTotal}` +
+      (drawn ? ` — ${drawn.name} 드로우` : ' — 덱이 비었다'),
   );
+}
+
+/** 배치 확정과 교전을 한 번에. 시뮬레이션과 테스트용. */
+export function playWave(state: CombatState, rng: Rng, config: CombatConfig): void {
+  commitWave(state, rng, config.reactivity);
+  resolveWave(state, config);
 }

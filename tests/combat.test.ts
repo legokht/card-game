@@ -1,41 +1,38 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { Rng } from '../src/engine/rng';
-import { canPlayCard, createCombat, endTurn, playCard, resetUidCounter } from '../src/engine/combat';
+import {
+  canPlayCard,
+  commitWave,
+  createCombat,
+  lanePlayerPower,
+  playCard,
+  playWave,
+  playerPowerByLane,
+  resetUidCounter,
+  resolveWave,
+} from '../src/engine/combat';
 import type { CardDef, CombatConfig, CombatState } from '../src/engine/types';
 
 const wall: CardDef = { id: 'wall', name: '벽', cost: 1, attack: 0, health: 5 };
-const hitter: CardDef = { id: 'hitter', name: '타격병', cost: 2, attack: 3, health: 3 };
-const rat: CardDef = { id: 'rat', name: '쥐', cost: 0, attack: 1, health: 1 };
-const brute: CardDef = { id: 'brute', name: '거구', cost: 0, attack: 4, health: 6 };
+const hitter: CardDef = { id: 'hitter', name: '타격병', cost: 2, attack: 4, health: 4 };
 
 function config(over: Partial<CombatConfig> = {}): CombatConfig {
   return {
-    laneCount: 2,
+    laneCount: 3,
+    waveCount: 3,
     playerMaxHp: 20,
     maxEnergy: 3,
-    startingHandSize: 2,
-    playerDeck: [wall, wall, hitter, hitter],
-    monsterDeck: [rat, rat],
+    startingHandSize: 3,
+    playerDeck: Array.from({ length: 12 }, () => hitter),
+    reactivity: 0.5,
+    totalPowerFor: () => 6,
     ...over,
   };
 }
 
-/** 레인 배치가 무작위이므로, 적이 있는 레인을 찾아 그 앞에 배치한다. */
-function laneWithEnemy(state: CombatState): number {
-  const i = state.lanes.findIndex((l) => l.enemy !== null);
-  if (i < 0) throw new Error('필드에 적이 없다');
-  return i;
-}
-
-function laneWithTelegraph(state: CombatState): number {
-  const i = state.lanes.findIndex((l) => l.telegraph !== null);
-  if (i < 0) throw new Error('예고된 적이 없다');
-  return i;
-}
-
 function handCard(state: CombatState, name: string): string {
   const card = state.hand.find((c) => c.name === name);
-  if (!card) throw new Error(`손패에 ${name}이(가) 없다: ${state.hand.map((c) => c.name)}`);
+  if (!card) throw new Error(`손패에 ${name} 없음: ${state.hand.map((c) => c.name)}`);
   return card.uid;
 }
 
@@ -43,331 +40,297 @@ beforeEach(() => {
   resetUidCounter();
 });
 
-describe('createCombat', () => {
-  it('시작 손패를 뽑고 예고를 한 장 깔아둔다', () => {
-    const state = createCombat(config(), new Rng('start'));
+describe('정보 공개', () => {
+  it('배치 단계에서는 총 전력만 알 수 있고 분배는 숨겨진다', () => {
+    const state = createCombat(config(), new Rng('hidden'));
 
-    expect(state.turn).toBe(1);
-    expect(state.outcome).toBe('ongoing');
-    expect(state.hand).toHaveLength(2);
-    expect(state.drawPile).toHaveLength(2);
-    expect(state.lanes.filter((l) => l.telegraph !== null)).toHaveLength(1);
-    // 예고된 적은 아직 내려오지 않았다.
-    expect(state.lanes.every((l) => l.enemy === null)).toBe(true);
-    expect(state.monsterPile).toHaveLength(1);
+    expect(state.phase).toBe('placing');
+    expect(state.waveTotal).toBe(6);
+    expect(state.revealedAllocation).toBeNull();
+    expect(state.lanes.every((l) => l.incoming === null)).toBe(true);
   });
 
-  it('에너지와 HP가 최대치로 시작한다', () => {
-    const state = createCombat(config(), new Rng('start'));
-    expect(state.energy).toBe(3);
-    expect(state.playerHp).toBe(20);
+  it('확정하면 분배가 공개되지만 아직 싸우지는 않는다', () => {
+    const cfg = config();
+    const state = createCombat(cfg, new Rng('reveal'));
+    const hpBefore = state.playerHp;
+
+    commitWave(state, new Rng('reveal'), cfg.reactivity);
+
+    expect(state.phase).toBe('revealed');
+    expect(state.revealedAllocation).not.toBeNull();
+    expect(state.revealedAllocation!.reduce((a, b) => a + b, 0)).toBe(6);
+    expect(state.playerHp).toBe(hpBefore);
+    // 공개된 분배가 그대로 레인에 보인다.
+    state.revealedAllocation!.forEach((power, i) => {
+      expect(state.lanes[i]!.incoming?.attack ?? 0).toBe(power);
+    });
   });
 
-  it('같은 시드는 같은 초기 상태를 만든다', () => {
+  it('공개 전에는 분배가 존재하지 않는다 — 배치를 보고 나서 만들어진다', () => {
+    const cfg = config({ reactivity: 1 });
+
+    // 같은 시드라도 플레이어 배치가 다르면 분배가 달라진다.
+    const a = createCombat(cfg, new Rng('same-seed'));
+    playCard(a, handCard(a, '타격병'), 0);
+    commitWave(a, new Rng('alloc'), 1);
+
     resetUidCounter();
-    const a = createCombat(config(), new Rng('same'));
-    resetUidCounter();
-    const b = createCombat(config(), new Rng('same'));
-    expect(a).toEqual(b);
-  });
-});
+    const b = createCombat(cfg, new Rng('same-seed'));
+    playCard(b, handCard(b, '타격병'), 2);
+    commitWave(b, new Rng('alloc'), 1);
 
-describe('playCard', () => {
-  it('배치하면 에너지가 줄고 손패에서 빠져 레인에 선다', () => {
-    const state = createCombat(config(), new Rng('play'));
-    const uid = state.hand[0]!.uid;
-    const cost = state.hand[0]!.cost;
-
-    playCard(state, uid, 0);
-
-    expect(state.energy).toBe(3 - cost);
-    expect(state.hand.find((c) => c.uid === uid)).toBeUndefined();
-    expect(state.lanes[0]!.player?.uid).toBe(uid);
+    expect(a.revealedAllocation).not.toEqual(b.revealedAllocation);
   });
 
-  it('이미 유닛이 있는 칸에는 배치할 수 없다', () => {
-    const state = createCombat(config({ startingHandSize: 2 }), new Rng('occupied'));
-    playCard(state, state.hand[0]!.uid, 0);
+  it('반응 강도 1이면 비워둔 레인에 최대 몫이 간다', () => {
+    const cfg = config({ reactivity: 1 });
+    const state = createCombat(cfg, new Rng('bait'));
 
-    const check = canPlayCard(state, state.hand[0]!.uid, 0);
-    expect(check.ok).toBe(false);
-    expect(check.reason).toContain('이미 유닛이 있는');
-    expect(() => playCard(state, state.hand[0]!.uid, 0)).toThrow();
+    playCard(state, handCard(state, '타격병'), 0); // 0번만 두껍게
+    commitWave(state, new Rng('bait'), 1);
+
+    // 균등형이 뽑히면 전부 같은 값이라 "더 적게"는 성립하지 않는다.
+    // 반응 강도 1이 보장하는 것은 두꺼운 레인이 남들보다 많이 받지는 않는다는 것.
+    const alloc = state.revealedAllocation!;
+    expect(alloc[0]).toBe(Math.min(...alloc));
   });
 
-  it('에너지가 부족하면 배치할 수 없다', () => {
-    const state = createCombat(
-      config({ maxEnergy: 1, startingHandSize: 4, playerDeck: [hitter, hitter, hitter, hitter] }),
-      new Rng('energy'),
-    );
+  it('반응 강도 1에서 얇은 레인이 반복적으로 더 맞는다', () => {
+    const cfg = config({ reactivity: 1 });
+    let thick = 0;
+    let thin = 0;
 
-    const check = canPlayCard(state, state.hand[0]!.uid, 0);
-    expect(check.ok).toBe(false);
-    expect(check.reason).toContain('에너지가 부족');
-  });
-
-  it('없는 레인이나 손패에 없는 카드는 거부한다', () => {
-    const state = createCombat(config(), new Rng('invalid'));
-    expect(canPlayCard(state, state.hand[0]!.uid, 99).ok).toBe(false);
-    expect(canPlayCard(state, 'no-such-uid', 0).ok).toBe(false);
-  });
-
-  it('에너지 한도 안에서는 한 턴에 여러 장 배치할 수 있다', () => {
-    const state = createCombat(
-      config({ startingHandSize: 3, playerDeck: [wall, wall, wall, wall] }),
-      new Rng('multi'),
-    );
-
-    playCard(state, state.hand[0]!.uid, 0);
-    playCard(state, state.hand[0]!.uid, 1);
-
-    expect(state.energy).toBe(1);
-    expect(state.lanes[0]!.player).not.toBeNull();
-    expect(state.lanes[1]!.player).not.toBeNull();
-  });
-});
-
-describe('턴 흐름', () => {
-  it('예고된 적은 교전 후에 내려온다', () => {
-    const state = createCombat(config(), new Rng('descend'));
-    const lane = laneWithTelegraph(state);
-
-    endTurn(state, new Rng('descend'));
-
-    expect(state.lanes[lane]!.telegraph).toBeNull();
-    expect(state.lanes[lane]!.enemy?.name).toBe('쥐');
-    expect(state.turn).toBe(2);
-  });
-
-  it('내려온 적은 다음 턴 종료 시에 공격한다', () => {
-    const state = createCombat(config(), new Rng('attack'));
-    const rng = new Rng('attack');
-
-    // 1턴 종료: 적이 내려오기만 하고 아직 때리지 않는다.
-    endTurn(state, rng);
-    expect(state.playerHp).toBe(20);
-
-    // 2턴 종료: 막지 않았으므로 관통 피해.
-    endTurn(state, rng);
-    expect(state.playerHp).toBe(19);
-  });
-
-  it('다음 턴이 시작되면 에너지가 리셋되고 한 장 드로우한다', () => {
-    const state = createCombat(config(), new Rng('upkeep'));
-    playCard(state, state.hand[0]!.uid, 0);
-    const handBefore = state.hand.length;
-
-    endTurn(state, new Rng('upkeep'));
-
-    expect(state.energy).toBe(3);
-    expect(state.hand).toHaveLength(handBefore + 1);
-  });
-
-  it('안 낸 카드는 손패에 누적된다', () => {
-    const state = createCombat(config(), new Rng('accumulate'));
-    const kept = state.hand.map((c) => c.uid);
-
-    endTurn(state, new Rng('accumulate'));
-
-    for (const uid of kept) {
-      expect(state.hand.some((c) => c.uid === uid)).toBe(true);
+    for (let i = 0; i < 40; i++) {
+      resetUidCounter();
+      const state = createCombat(cfg, new Rng(`bait-${i}`));
+      playCard(state, handCard(state, '타격병'), 0);
+      commitWave(state, new Rng(`alloc-${i}`), 1);
+      const alloc = state.revealedAllocation!;
+      thick += alloc[0]!;
+      thin += alloc[1]! + alloc[2]!;
     }
+
+    expect(thick * 2).toBeLessThan(thin);
   });
 
-  it('덱이 비면 드로우 없이 턴이 진행된다', () => {
-    const state = createCombat(
-      config({ playerDeck: [wall], startingHandSize: 1, monsterDeck: [rat, rat, rat, rat] }),
-      new Rng('empty-deck'),
-    );
-    expect(state.drawPile).toHaveLength(0);
+  it('교전까지 끝나면 다음 웨이브 총 전력이 새로 공개된다', () => {
+    const cfg = config({ totalPowerFor: (w) => w * 5 });
+    const state = createCombat(cfg, new Rng('next'));
+    expect(state.waveTotal).toBe(5);
 
-    endTurn(state, new Rng('empty-deck'));
+    playWave(state, new Rng('next'), cfg);
 
-    expect(state.hand).toHaveLength(1);
-    expect(state.log.some((l) => l.includes('덱이 비었다'))).toBe(true);
+    expect(state.wave).toBe(2);
+    expect(state.phase).toBe('placing');
+    expect(state.waveTotal).toBe(10);
+    expect(state.revealedAllocation).toBeNull();
+  });
+});
+
+describe('단계 강제', () => {
+  it('공개 단계에서는 배치할 수 없다', () => {
+    const cfg = config();
+    const state = createCombat(cfg, new Rng('phase'));
+    const uid = state.hand[0]!.uid;
+
+    commitWave(state, new Rng('phase'), cfg.reactivity);
+
+    expect(canPlayCard(state, uid, 0).ok).toBe(false);
+    expect(() => playCard(state, uid, 0)).toThrow();
+  });
+
+  it('배치 단계에서 resolveWave를 부르면 아무 일도 없다', () => {
+    const cfg = config();
+    const state = createCombat(cfg, new Rng('guard'));
+    const snapshot = structuredClone(state);
+
+    resolveWave(state, cfg);
+
+    expect(state).toEqual(snapshot);
+  });
+
+  it('확정을 두 번 불러도 분배가 다시 뽑히지 않는다', () => {
+    const cfg = config();
+    const state = createCombat(cfg, new Rng('double'));
+
+    commitWave(state, new Rng('double'), cfg.reactivity);
+    const first = [...state.revealedAllocation!];
+    commitWave(state, new Rng('other'), cfg.reactivity);
+
+    expect(state.revealedAllocation).toEqual(first);
   });
 });
 
 describe('교전', () => {
-  it('막은 레인은 서로 피해를 주고받는다', () => {
-    const state = createCombat(
-      config({ playerDeck: [wall, wall, wall, wall], monsterDeck: [rat] }),
-      new Rng('block'),
-    );
-    const rng = new Rng('block');
+  it('적 유닛은 공격력과 체력이 모두 배분된 전력과 같다', () => {
+    const cfg = config();
+    const state = createCombat(cfg, new Rng('stats'));
+    commitWave(state, new Rng('stats'), cfg.reactivity);
 
-    endTurn(state, rng); // 쥐가 내려온다
-    const lane = laneWithEnemy(state);
-    playCard(state, handCard(state, '벽'), lane);
+    for (const lane of state.lanes) {
+      if (!lane.incoming) continue;
+      expect(lane.incoming.attack).toBe(lane.incoming.health);
+      expect(lane.incoming.maxHealth).toBe(lane.incoming.attack);
+    }
+  });
 
-    endTurn(state, rng);
+  it('막지 못한 레인만큼 HP가 깎인다', () => {
+    const cfg = config({ totalPowerFor: () => 6 });
+    const state = createCombat(cfg, new Rng('leak'));
 
-    // 벽(0/5)이 쥐(1/1)를 막았다: 쥐는 0딜을 받아 살고, 벽은 1딜을 받는다.
-    expect(state.lanes[lane]!.player!.health).toBe(4);
-    expect(state.lanes[lane]!.enemy!.health).toBe(1);
+    commitWave(state, new Rng('leak'), cfg.reactivity);
+    const unblocked = state.lanes
+      .filter((l) => !l.player && l.incoming)
+      .reduce((sum, l) => sum + l.incoming!.attack, 0);
+    // 유닛이 있는 레인은 전력으로 다 받아내므로 관통에 기여하지 않는다.
+    const hpBefore = state.playerHp;
+
+    resolveWave(state, cfg);
+
+    expect(hpBefore - state.playerHp).toBe(unblocked);
+  });
+
+  it('웨이브는 한 번 부딪히고 소멸한다 — 적이 필드에 쌓이지 않는다', () => {
+    const cfg = config({ waveCount: 5, laneCount: 1, totalPowerFor: () => 4 });
+    const state = createCombat(cfg, new Rng('spend'));
+
+    playWave(state, new Rng('r1'), cfg);
+    expect(state.lanes[0]!.incoming).toBeNull();
+    expect(state.playerHp).toBe(16);
+
+    playWave(state, new Rng('r2'), cfg);
+    expect(state.playerHp).toBe(12); // 증강 없이 매번 4씩만
+  });
+
+  it('레인 전력을 넘는 만큼만 관통한다', () => {
+    const cfg = config({ laneCount: 1, totalPowerFor: () => 10, waveCount: 2, maxEnergy: 3 });
+    const state = createCombat(cfg, new Rng('spill'));
+
+    playCard(state, handCard(state, '타격병'), 0); // 공4 체4 = 전력 8
+    playWave(state, new Rng('spill'), cfg);
+
+    expect(state.playerHp).toBe(18); // 10 - 8 = 2만 관통
+    expect(state.lanes[0]!.player).toBeNull();
+  });
+
+  it('전력이 충분하면 유닛이 피해만 입고 버틴다', () => {
+    const cfg = config({ laneCount: 1, totalPowerFor: () => 6, waveCount: 2, maxEnergy: 3 });
+    const state = createCombat(cfg, new Rng('hold'));
+
+    playCard(state, handCard(state, '타격병'), 0); // 공4 체4 = 전력 8
+    playWave(state, new Rng('hold'), cfg);
+
     expect(state.playerHp).toBe(20);
-  });
-
-  it('공격력이 충분하면 적을 격파한다', () => {
-    const state = createCombat(
-      config({ playerDeck: [hitter, hitter, hitter, hitter], monsterDeck: [rat] }),
-      new Rng('kill'),
-    );
-    const rng = new Rng('kill');
-
-    endTurn(state, rng);
-    const lane = laneWithEnemy(state);
-    playCard(state, handCard(state, '타격병'), lane);
-
-    endTurn(state, rng);
-
-    expect(state.lanes[lane]!.enemy).toBeNull();
-    expect(state.lanes[lane]!.player!.health).toBe(2); // 쥐에게 1 맞음
-  });
-
-  it('동시 공격이므로 죽는 유닛도 반격은 한다', () => {
-    const state = createCombat(
-      config({
-        playerDeck: [hitter, hitter, hitter, hitter],
-        monsterDeck: [brute],
-        maxEnergy: 3,
-      }),
-      new Rng('trade'),
-    );
-    const rng = new Rng('trade');
-
-    endTurn(state, rng);
-    const lane = laneWithEnemy(state);
-    playCard(state, handCard(state, '타격병'), lane);
-
-    endTurn(state, rng);
-
-    // 거구(4/6)와 타격병(3/3)이 맞교환: 타격병은 죽지만 3딜은 들어간다.
-    expect(state.lanes[lane]!.player).toBeNull();
-    expect(state.lanes[lane]!.enemy!.health).toBe(3);
-    expect(state.playerHp).toBe(20); // 막았으므로 관통 없음
-  });
-
-  it('막지 못한 레인만 플레이어 HP를 깎는다', () => {
-    const state = createCombat(
-      config({
-        laneCount: 2,
-        playerDeck: [wall, wall, wall, wall],
-        monsterDeck: [brute, brute],
-        startingHandSize: 2,
-      }),
-      new Rng('leak'),
-    );
-    const rng = new Rng('leak');
-
-    endTurn(state, rng); // 한 마리 내려옴, 다른 레인에 예고
-    endTurn(state, rng); // 첫 마리 공격(막지 않음), 두 번째 내려옴
-
-    expect(state.playerHp).toBe(16); // 거구 1마리분 4딜만
+    // 공격력 4가 타격을 무디게 해 체력은 2만 깎인다.
+    expect(state.lanes[0]!.player!.health).toBe(2);
   });
 });
 
-describe('승패 판정', () => {
-  it('몬스터 덱이 소진되고 필드가 정리되면 승리한다', () => {
-    const state = createCombat(
-      config({ playerDeck: [hitter, hitter, hitter, hitter], monsterDeck: [rat] }),
-      new Rng('win'),
-    );
-    const rng = new Rng('win');
+describe('플레이어 전력 계산', () => {
+  it('레인 전력은 공격력 + 체력이다', () => {
+    const state = createCombat(config(), new Rng('power'));
+    playCard(state, handCard(state, '타격병'), 1); // 공4 체4
 
-    endTurn(state, rng);
-    playCard(state, handCard(state, '타격병'), laneWithEnemy(state));
-    endTurn(state, rng);
+    expect(lanePlayerPower(state.lanes[1]!)).toBe(8);
+    expect(playerPowerByLane(state)).toEqual([0, 8, 0]);
+  });
+
+  it('빈 레인의 전력은 0이다', () => {
+    const state = createCombat(config(), new Rng('empty'));
+    expect(playerPowerByLane(state)).toEqual([0, 0, 0]);
+  });
+});
+
+describe('승패', () => {
+  it('정해진 웨이브를 모두 버티면 승리한다', () => {
+    const cfg = config({ waveCount: 3, totalPowerFor: () => 1, playerMaxHp: 50 });
+    const state = createCombat(cfg, new Rng('win'));
+
+    for (let i = 0; i < 3; i++) playWave(state, new Rng(`w${i}`), cfg);
 
     expect(state.outcome).toBe('victory');
-    expect(state.log.some((l) => l.includes('승리'))).toBe(true);
+    expect(state.phase).toBe('over');
+    expect(state.records).toHaveLength(3);
   });
 
-  it('적이 남아 있으면 덱이 비어도 승리가 아니다', () => {
-    const state = createCombat(
-      config({ playerDeck: [wall, wall, wall, wall], monsterDeck: [rat] }),
-      new Rng('not-yet'),
-    );
-    const rng = new Rng('not-yet');
+  it('HP가 0이 되면 마지막 웨이브 전이라도 패배한다', () => {
+    const cfg = config({ waveCount: 9, totalPowerFor: () => 30, playerMaxHp: 10 });
+    const state = createCombat(cfg, new Rng('lose'));
 
-    endTurn(state, rng);
-    playCard(state, handCard(state, '벽'), laneWithEnemy(state));
-    endTurn(state, rng);
-
-    // 벽은 공격력 0이라 쥐를 못 죽인다.
-    expect(state.monsterPile).toHaveLength(0);
-    expect(state.outcome).toBe('ongoing');
-  });
-
-  it('HP가 0이 되면 패배한다', () => {
-    const state = createCombat(
-      config({
-        playerMaxHp: 4,
-        playerDeck: [wall, wall, wall, wall],
-        monsterDeck: [brute, brute, brute],
-        laneCount: 3,
-      }),
-      new Rng('lose'),
-    );
-    const rng = new Rng('lose');
-
-    endTurn(state, rng);
-    endTurn(state, rng); // 거구 한 마리가 4딜
+    playWave(state, new Rng('lose'), cfg);
 
     expect(state.playerHp).toBe(0);
     expect(state.outcome).toBe('defeat');
   });
 
-  it('전투가 끝나면 더 이상 진행되지 않는다', () => {
-    const state = createCombat(
-      config({ playerDeck: [hitter, hitter, hitter, hitter], monsterDeck: [rat] }),
-      new Rng('frozen'),
-    );
-    const rng = new Rng('frozen');
+  it('전투가 끝나면 더 진행되지 않는다', () => {
+    const cfg = config({ waveCount: 1, totalPowerFor: () => 1, playerMaxHp: 50 });
+    const state = createCombat(cfg, new Rng('frozen'));
 
-    endTurn(state, rng);
-    playCard(state, handCard(state, '타격병'), laneWithEnemy(state));
-    endTurn(state, rng);
+    playWave(state, new Rng('frozen'), cfg);
     expect(state.outcome).toBe('victory');
 
     const snapshot = structuredClone(state);
-    endTurn(state, rng);
+    playWave(state, new Rng('frozen'), cfg);
     expect(state).toEqual(snapshot);
-    expect(canPlayCard(state, 'anything', 0).ok).toBe(false);
   });
 });
 
-describe('예고 배치 규칙', () => {
-  it('적이 서 있는 레인이 막히면 예고가 대기한다', () => {
-    const state = createCombat(
-      config({ laneCount: 1, playerDeck: [wall, wall], monsterDeck: [brute, brute] }),
-      new Rng('blocked'),
-    );
-    const rng = new Rng('blocked');
+describe('웨이브 기록', () => {
+  it('총 전력·분배·배치·여유·레인 결과를 남긴다', () => {
+    const cfg = config({ waveCount: 2, totalPowerFor: () => 6, maxEnergy: 3 });
+    const state = createCombat(cfg, new Rng('record'));
+    playCard(state, handCard(state, '타격병'), 0);
 
-    endTurn(state, rng); // 거구 1이 내려옴. 레인이 하나뿐이라 새 예고는 못 올라온다.
-    expect(state.lanes[0]!.enemy).not.toBeNull();
-    expect(state.lanes[0]!.telegraph).toBeNull();
-    expect(state.monsterPile).toHaveLength(1);
+    playWave(state, new Rng('record'), cfg);
+
+    const rec = state.records[0]!;
+    expect(rec.wave).toBe(1);
+    expect(rec.total).toBe(6);
+    expect(rec.patternName).not.toBe('');
+    expect(rec.allocation.reduce((a, b) => a + b, 0)).toBe(6);
+    expect(rec.playerPower).toEqual([8, 0, 0]);
+    expect(rec.margin).toBe(8 - 6);
+    expect(rec.lanes).toHaveLength(3);
+    expect(rec.damageTaken).toBeGreaterThanOrEqual(0);
   });
 
-  it('레인 수보다 몬스터가 많아도 상태가 깨지지 않는다', () => {
-    const state = createCombat(
-      config({
-        laneCount: 2,
-        playerDeck: [wall, wall, wall, wall],
-        monsterDeck: [rat, rat, rat, rat, rat, rat],
-        playerMaxHp: 100,
-      }),
-      new Rng('overflow'),
-    );
-    const rng = new Rng('overflow');
+  it('레인 결과가 실제 상황과 맞는다', () => {
+    const cfg = config({ laneCount: 1, waveCount: 2, totalPowerFor: () => 4, maxEnergy: 3 });
 
-    for (let i = 0; i < 20 && state.outcome === 'ongoing'; i++) endTurn(state, rng);
+    // 막지 않으면 leaked
+    const bare = createCombat(cfg, new Rng('bare'));
+    playWave(bare, new Rng('bare'), cfg);
+    expect(bare.records[0]!.lanes[0]!.result).toBe('leaked');
+    expect(bare.records[0]!.lanes[0]!.leaked).toBe(4);
 
-    for (const lane of state.lanes) {
-      expect(lane.enemy === null || lane.enemy.health > 0).toBe(true);
-    }
-    expect(state.playerHp).toBeLessThan(100);
+    // 전력 8이 위협 12를 받으면 유닛이 부서지고 4가 관통한다
+    resetUidCounter();
+    const brokenCfg = { ...cfg, totalPowerFor: () => 12 };
+    const broken = createCombat(brokenCfg, new Rng('broken'));
+    playCard(broken, handCard(broken, '타격병'), 0);
+    playWave(broken, new Rng('broken'), brokenCfg);
+    expect(broken.records[0]!.lanes[0]!.result).toBe('broken');
+    expect(broken.records[0]!.lanes[0]!.leaked).toBe(4);
+
+    // 공0/체5 벽(전력 5)은 4를 받아내고 버틴다
+    resetUidCounter();
+    const wallCfg = { ...cfg, playerDeck: [wall, wall, wall] };
+    const holding = createCombat(wallCfg, new Rng('holding'));
+    playCard(holding, handCard(holding, '벽'), 0);
+    playWave(holding, new Rng('holding'), wallCfg);
+    expect(holding.records[0]!.lanes[0]!.result).toBe('held');
+    expect(holding.records[0]!.lanes[0]!.leaked).toBe(0);
+  });
+
+  it('여유(margin)는 총 배치 전력에서 웨이브 총량을 뺀 값이다', () => {
+    const cfg = config({ waveCount: 2, totalPowerFor: () => 10, maxEnergy: 3 });
+    const state = createCombat(cfg, new Rng('margin'));
+    playCard(state, handCard(state, '타격병'), 0); // 8
+
+    playWave(state, new Rng('margin'), cfg);
+
+    expect(state.records[0]!.margin).toBe(-2);
   });
 });
