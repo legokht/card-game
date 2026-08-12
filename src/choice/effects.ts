@@ -53,12 +53,17 @@ function pickForRemoval(deck: CardInstance[], kind: CardKind, count: number): Ca
 }
 
 /**
- * 파편은 값어치가 0이라 "값싼 카드부터 버린다"에 가장 먼저 걸린다. 그러면 덱의
- * 파편 수와 탈출 카운트가 어긋나므로, 종류를 명시하지 않은 제거에서는 제외한다.
- * 모은 진척을 모르는 사이에 깎는 것은 어차피 규칙으로도 나쁘다.
+ * 종류를 명시하지 않은 제거("값싼 카드부터 버린다")에서 빠지는 카드들.
+ *
+ * 파편은 값어치가 0이라 가장 먼저 걸린다. 그러면 덱의 파편 수와 탈출 카운트가
+ * 어긋나고, 모은 진척이 모르는 사이에 깎인다.
+ *
+ * 저주도 값이 싸서 매번 먼저 잘려 나갔다. 그 결과 짐을 덜어낼 때마다 저주가
+ * 공짜로 청소돼 오염도가 5%를 넘지 못했고, 저주 페널티 자체가 성립하지 않았다
+ * (무지성 플레이 탈출률 99%). 저주는 정리형 선택지로만 지운다.
  */
 function removable(deck: CardInstance[]): CardInstance[] {
-  return deck.filter((c) => c.kind !== 'shard');
+  return deck.filter((c) => c.kind !== 'shard' && c.kind !== 'curse');
 }
 
 function removeCards(state: GameState, targets: CardInstance[]): void {
@@ -142,6 +147,37 @@ export function applyEffect(state: GameState, effect: Effect, rng: Rng): string[
         state.shards += 1;
       }
       lines.push(`+ 탈출구 파편 ×${effect.count} (${state.shards}/${state.escapeTarget})`);
+      return lines;
+    }
+
+    case 'damage': {
+      state.hp -= effect.amount;
+      return [`체력 -${effect.amount} (${Math.max(0, state.hp)}/${state.maxHp})`];
+    }
+
+    case 'heal': {
+      const before = state.hp;
+      state.hp = Math.min(state.maxHp, state.hp + effect.amount);
+      const gained = state.hp - before;
+      return gained > 0 ? [`체력 +${gained} (${state.hp}/${state.maxHp})`] : [];
+    }
+
+    /**
+     * 덱을 실제로 써야만 저주가 아프다. 덱 전체를 섞어 count장을 공개하고,
+     * 종류별 결과를 뽑힌 장수만큼 적용한다. 카드는 전부 덱에 남는다 —
+     * 저주는 지우기 전까지 계속 물어뜯는다.
+     */
+    case 'draw': {
+      if (state.deck.length === 0) return ['덱이 비어 뽑을 것이 없었다'];
+
+      const revealed = rng.shuffle(state.deck).slice(0, effect.count);
+      const curses = revealed.filter((c) => c.kind === 'curse').length;
+      const rewards = revealed.filter((c) => c.kind === 'reward').length;
+
+      const lines = [`공개: ${revealed.map((c) => c.name).join(', ')}`];
+      for (let i = 0; i < curses; i++) lines.push(...applyEffects(state, effect.onCurse, rng));
+      for (let i = 0; i < rewards; i++) lines.push(...applyEffects(state, effect.onReward, rng));
+      if (curses === 0 && rewards === 0) lines.push('아무 일도 없었다');
       return lines;
     }
 

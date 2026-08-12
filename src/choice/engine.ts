@@ -1,5 +1,12 @@
 import type { Rng } from '../engine/rng';
-import { ESCAPE_TARGET, RECENT_WINDOW, SHARD_EVENT_RATE, STARTING_DECK, TAINT_LEVELS } from './balance';
+import {
+  ESCAPE_TARGET,
+  MAX_HP,
+  RECENT_WINDOW,
+  SHARD_EVENT_RATE,
+  STARTING_DECK,
+  TAINT_LEVELS,
+} from './balance';
 import { applyEffects, buildDeck, countKind } from './effects';
 import { EVENTS } from './events';
 import type { CardKind, ChoiceEvent, GameState } from './types';
@@ -72,6 +79,9 @@ export function createGame(rng: Rng): GameState {
     shards: 0,
     escapeTarget: ESCAPE_TARGET,
     escaped: false,
+    hp: MAX_HP,
+    maxHp: MAX_HP,
+    dead: false,
     current: null,
     recent: [],
     log: [],
@@ -80,14 +90,16 @@ export function createGame(rng: Rng): GameState {
 
   state.current = drawEvent(state, rng);
   remember(state, state.current.id);
-  state.log.push(`시작. 덱 ${state.deck.length}장. 탈출구 파편 0/${ESCAPE_TARGET}.`);
+  state.log.push(
+    `시작. 덱 ${state.deck.length}장, 체력 ${MAX_HP}. 탈출구 파편 0/${ESCAPE_TARGET}.`,
+  );
 
   return state;
 }
 
 /** 한쪽을 고르고 덱에 즉시 반영한 뒤 다음 선택지를 제시한다. */
 export function choose(state: GameState, side: 'red' | 'blue', rng: Rng): void {
-  if (state.escaped || !state.current) return;
+  if (state.escaped || state.dead || !state.current) return;
 
   const event = state.current;
   const option = event[side];
@@ -102,10 +114,20 @@ export function choose(state: GameState, side: 'red' | 'blue', rng: Rng): void {
     changes,
     deckSizeAfter: summary.total,
     curseCountAfter: summary.curse,
+    hpAfter: Math.max(0, state.hp),
   });
 
   state.log.push(`${state.step}. [${side === 'red' ? '빨강' : '파랑'}] ${option.text}`);
   for (const c of changes) state.log.push(`   ${c}`);
+
+  // 죽음이 탈출보다 먼저 판정된다. 마지막 파편을 뽑다 죽으면 죽은 것이다.
+  if (state.hp <= 0) {
+    state.hp = 0;
+    state.dead = true;
+    state.current = null;
+    state.log.push(`사망 — 파편 ${state.shards}/${state.escapeTarget}에서 멈췄다.`);
+    return;
+  }
 
   if (state.shards >= state.escapeTarget) {
     state.escaped = true;

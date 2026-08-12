@@ -33,6 +33,16 @@ export type Condition =
  * 전투가 없으므로 카드 "효과"는 없다. 여기서 말하는 효과는 전부 덱 구성을
  * 바꾸는 것이다.
  */
+/**
+ * 선택지 유형. 배합을 눈으로 확인하고 테스트로 강제하기 위해 명시한다.
+ *
+ * - `consume`: 덱에서 뽑아 판정. 저주가 실제로 아파지는 자리
+ * - `cleanse`: 저주 제거·교체. 덱을 다듬는다
+ * - `shard`: 탈출 카운트 증가. 반드시 명확한 대가를 동반한다
+ * - `gain`: 보상 획득. 대가 없이는 안 된다
+ */
+export type OptionKind = 'consume' | 'cleanse' | 'shard' | 'gain';
+
 export type Effect =
   | { type: 'addSpecific'; cardId: string; count: number }
   | { type: 'addRandom'; kind: CardKind; count: number }
@@ -41,6 +51,15 @@ export type Effect =
   /** from 종류를 to 종류로 바꾼다. 값어치는 유지하지 않고 새로 뽑는다. */
   | { type: 'transform'; from: CardKind; to: CardKind; count: number }
   | { type: 'shard'; count: number }
+  | { type: 'damage'; amount: number }
+  | { type: 'heal'; amount: number }
+  /**
+   * 덱에서 count장을 공개해 종류별로 결과를 적용한다.
+   *
+   * 뽑은 카드는 전부 덱으로 돌아간다. 저주는 지우기 전까지 계속 아프고,
+   * 덱의 저주 비율이 그대로 이 선택지의 위험도가 된다.
+   */
+  | { type: 'draw'; count: number; onCurse: Effect[]; onReward: Effect[] }
   | { type: 'ifThen'; when: Condition; then: Effect[]; otherwise: Effect[] };
 
 /** 감정 축. 계산 없이도 어느 쪽인지 읽히게 하는 라벨. */
@@ -50,6 +69,7 @@ export interface ChoiceOption {
   /** 버튼에 그대로 뜨는 문구. */
   text: string;
   tone: Tone;
+  kind: OptionKind;
   effects: Effect[];
 }
 
@@ -75,6 +95,7 @@ export interface ChoiceRecord {
   changes: string[];
   deckSizeAfter: number;
   curseCountAfter: number;
+  hpAfter: number;
 }
 
 export interface GameState {
@@ -84,6 +105,10 @@ export interface GameState {
   shards: number;
   escapeTarget: number;
   escaped: boolean;
+  /** 체력이 0이 되면 끝난다. */
+  hp: number;
+  maxHp: number;
+  dead: boolean;
 
   /** 지금 제시된 선택지. 탈출하면 null. */
   current: ChoiceEvent | null;

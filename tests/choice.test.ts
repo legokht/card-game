@@ -3,8 +3,8 @@ import { Rng } from '../src/engine/rng';
 import { choose, createGame, deckByKind, drawEvent, summarize } from '../src/choice/engine';
 import { applyEffects, countKind, resetUidCounter } from '../src/choice/effects';
 import { EVENTS } from '../src/choice/events';
-import { CARD_POOL, ESCAPE_TARGET, STARTING_DECK } from '../src/choice/balance';
-import type { Effect, GameState } from '../src/choice/types';
+import { CARD_POOL, CURSE_DAMAGE, ESCAPE_TARGET, MAX_HP, STARTING_DECK } from '../src/choice/balance';
+import type { Effect, GameState, OptionKind } from '../src/choice/types';
 
 beforeEach(() => {
   resetUidCounter();
@@ -17,6 +17,58 @@ function apply(state: GameState, effects: Effect[], seed = 'fx'): string[] {
 describe('선택지 데이터', () => {
   it('20개 이상 있다', () => {
     expect(EVENTS.length).toBeGreaterThanOrEqual(20);
+  });
+
+  it('네 유형이 각각 최소 4개씩 있다', () => {
+    const counts: Record<OptionKind, number> = { consume: 0, cleanse: 0, shard: 0, gain: 0 };
+    for (const e of EVENTS) {
+      counts[e.red.kind] += 1;
+      counts[e.blue.kind] += 1;
+    }
+    for (const kind of Object.keys(counts) as OptionKind[]) {
+      expect(counts[kind], kind).toBeGreaterThanOrEqual(4);
+    }
+  });
+
+  it('획득형이 절반을 넘지 않는다', () => {
+    const gain = EVENTS.filter((e) => e.red.kind === 'gain').length +
+      EVENTS.filter((e) => e.blue.kind === 'gain').length;
+    expect(gain / (EVENTS.length * 2)).toBeLessThan(0.5);
+  });
+
+  it('덱소비형은 실제로 덱에서 뽑는다', () => {
+    const draws = (fx: Effect[]): boolean =>
+      fx.some((f) => f.type === 'draw' || (f.type === 'ifThen' && (draws(f.then) || draws(f.otherwise))));
+    for (const e of EVENTS) {
+      for (const side of ['red', 'blue'] as const) {
+        if (e[side].kind === 'consume') expect(draws(e[side].effects), `${e.id}.${side}`).toBe(true);
+      }
+    }
+  });
+
+  it('파편형은 반드시 저주를 대가로 치른다', () => {
+    // 전투가 없으니 보상 상실은 실질 비용이 아니다. 저주만이 나중에 물어뜯는다.
+    const addsCurse = (fx: Effect[]): boolean =>
+      fx.some(
+        (f) =>
+          (f.type === 'addRandom' && f.kind === 'curse') ||
+          (f.type === 'ifThen' && (addsCurse(f.then) || addsCurse(f.otherwise))),
+      );
+    for (const e of EVENTS) {
+      for (const side of ['red', 'blue'] as const) {
+        if (e[side].kind === 'shard') expect(addsCurse(e[side].effects), `${e.id}.${side}`).toBe(true);
+      }
+    }
+  });
+
+  it('파편형은 반드시 탈출 카운트를 올린다', () => {
+    const shards = (fx: Effect[]): boolean =>
+      fx.some((f) => f.type === 'shard' || (f.type === 'ifThen' && (shards(f.then) || shards(f.otherwise))));
+    for (const e of EVENTS) {
+      for (const side of ['red', 'blue'] as const) {
+        if (e[side].kind === 'shard') expect(shards(e[side].effects), `${e.id}.${side}`).toBe(true);
+      }
+    }
   });
 
   it('id가 겹치지 않는다', () => {
@@ -145,6 +197,50 @@ describe('효과 적용', () => {
     expect(countKind(cursed.deck, 'reward')).toBe(rewardBefore + 3);
   });
 
+  it('덱에서 뽑으면 저주마다 체력이 깎이고 카드는 덱에 남는다', () => {
+    const state = createGame(new Rng('bite'));
+    state.deck = state.deck.filter((c) => c.kind !== 'curse');
+    apply(state, [{ type: 'addRandom', kind: 'curse', count: 20 }]);
+    const size = state.deck.length;
+    const hp = state.hp;
+
+    apply(state, [
+      { type: 'draw', count: 3, onCurse: [{ type: 'damage', amount: CURSE_DAMAGE }], onReward: [] },
+    ]);
+
+    // 덱이 전부 저주라 3장 모두 물어뜯는다.
+    expect(state.hp).toBe(hp - CURSE_DAMAGE * 3);
+    expect(state.deck).toHaveLength(size);
+  });
+
+  it('덱에 저주가 없으면 뽑아도 아프지 않다', () => {
+    const state = createGame(new Rng('safe-draw'));
+    expect(countKind(state.deck, 'curse')).toBe(0);
+    const hp = state.hp;
+
+    apply(state, [
+      { type: 'draw', count: 3, onCurse: [{ type: 'damage', amount: CURSE_DAMAGE }], onReward: [] },
+    ]);
+
+    expect(state.hp).toBe(hp);
+  });
+
+  it('회복은 최대 체력을 넘지 않는다', () => {
+    const state = createGame(new Rng('heal'));
+    apply(state, [{ type: 'heal', amount: 99 }]);
+    expect(state.hp).toBe(state.maxHp);
+  });
+
+  it('저주는 값싼 카드 정리에 휩쓸리지 않는다', () => {
+    const state = createGame(new Rng('sticky'));
+    apply(state, [{ type: 'addRandom', kind: 'curse', count: 3 }]);
+
+    apply(state, [{ type: 'removeExtreme', end: 'lowest', count: 6 }]);
+
+    // 저주가 값싸다고 저절로 청소되면 저주 페널티 자체가 성립하지 않는다.
+    expect(countKind(state.deck, 'curse')).toBe(3);
+  });
+
   it('파편은 덱에도 들어가고 카운트도 올린다', () => {
     const state = createGame(new Rng('shard'));
     apply(state, [{ type: 'shard', count: 2 }]);
@@ -180,12 +276,12 @@ describe('선택 루프', () => {
     const rng = new Rng('endless');
     const state = createGame(rng);
 
-    for (let i = 0; i < 300 && !state.escaped; i++) {
+    for (let i = 0; i < 300 && !state.escaped && !state.dead; i++) {
       choose(state, i % 2 === 0 ? 'red' : 'blue', rng);
     }
 
-    // 탈출했거나, 아직 돌고 있거나. 어느 쪽이든 멈추거나 깨지지 않는다.
-    expect(state.escaped || state.current !== null).toBe(true);
+    // 탈출했거나, 죽었거나, 아직 돌고 있거나. 어느 쪽이든 깨지지 않는다.
+    expect(state.escaped || state.dead || state.current !== null).toBe(true);
     expect(state.deck.every((c) => c.name.length > 0)).toBe(true);
   });
 
@@ -203,7 +299,7 @@ describe('선택 루프', () => {
     const rng = new Rng('adversarial');
     const state = createGame(rng);
 
-    for (let i = 0; i < 250 && !state.escaped; i++) {
+    for (let i = 0; i < 250 && !state.escaped && !state.dead; i++) {
       const event = state.current!;
       // 매번 덱이 더 커지는 쪽을 고른다.
       const probe = structuredClone(state);
@@ -224,7 +320,7 @@ describe('선택 루프', () => {
     const state = createGame(rng);
     let peak = 0;
 
-    for (let i = 0; i < 200 && !state.escaped; i++) {
+    for (let i = 0; i < 200 && !state.escaped && !state.dead; i++) {
       choose(state, rng.next() < 0.5 ? 'red' : 'blue', rng);
       peak = Math.max(peak, state.deck.length);
     }
@@ -246,6 +342,83 @@ describe('선택 루프', () => {
   });
 });
 
+describe('사망', () => {
+  it('체력이 0이 되면 죽고 루프가 멈춘다', () => {
+    const rng = new Rng('death');
+    const state = createGame(rng);
+    expect(state.hp).toBe(MAX_HP);
+
+    state.deck = [];
+    apply(state, [{ type: 'addRandom', kind: 'curse', count: 10 }]);
+    state.current = {
+      id: 'test-lethal',
+      prompt: '',
+      red: {
+        text: '',
+        tone: 'gamble',
+        kind: 'consume',
+        effects: [
+          {
+            type: 'draw',
+            count: 10,
+            onCurse: [{ type: 'damage', amount: CURSE_DAMAGE }],
+            onReward: [],
+          },
+        ],
+      },
+      blue: { text: '', tone: 'safe', kind: 'cleanse', effects: [] },
+    };
+
+    choose(state, 'red', rng);
+
+    expect(state.hp).toBe(0);
+    expect(state.dead).toBe(true);
+    expect(state.current).toBeNull();
+    expect(state.log.join()).toContain('사망');
+  });
+
+  it('죽은 뒤에는 더 선택되지 않는다', () => {
+    const rng = new Rng('after-death');
+    const state = createGame(rng);
+    state.hp = 0;
+    state.dead = true;
+    state.current = null;
+
+    const snapshot = structuredClone(state);
+    choose(state, 'red', rng);
+    expect(state).toEqual(snapshot);
+  });
+
+  it('마지막 파편을 캐다 죽으면 탈출이 아니라 사망이다', () => {
+    const rng = new Rng('lethal-shard');
+    const state = createGame(rng);
+    state.shards = ESCAPE_TARGET - 1;
+    state.hp = 1;
+    state.deck = [];
+    apply(state, [{ type: 'addRandom', kind: 'curse', count: 5 }]);
+    state.current = {
+      id: 'test-shard-lethal',
+      prompt: '',
+      red: {
+        text: '',
+        tone: 'now',
+        kind: 'shard',
+        effects: [
+          { type: 'shard', count: 1 },
+          { type: 'draw', count: 3, onCurse: [{ type: 'damage', amount: CURSE_DAMAGE }], onReward: [] },
+        ],
+      },
+      blue: { text: '', tone: 'safe', kind: 'cleanse', effects: [] },
+    };
+
+    choose(state, 'red', rng);
+
+    expect(state.shards).toBeGreaterThanOrEqual(ESCAPE_TARGET);
+    expect(state.dead).toBe(true);
+    expect(state.escaped).toBe(false);
+  });
+});
+
 describe('탈출', () => {
   it('파편이 목표에 닿으면 탈출하고 루프가 멈춘다', () => {
     const rng = new Rng('escape');
@@ -260,6 +433,7 @@ describe('탈출', () => {
 
     expect(state.shards).toBeGreaterThanOrEqual(ESCAPE_TARGET);
     expect(state.escaped).toBe(true);
+    expect(state.dead).toBe(false);
     expect(state.current).toBeNull();
     expect(state.log.join()).toContain('탈출 성공');
   });

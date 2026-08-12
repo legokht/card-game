@@ -147,6 +147,49 @@ b {
   border-color: var(--dim);
 }
 
+/* 체력. 저주 피해를 받는 대상이라 항상 눈에 있어야 한다. */
+.vitals__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.vitals b {
+  font-family: var(--mono);
+  font-size: 20px;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.vitals b.is-low {
+  color: #e0796c;
+}
+
+.of {
+  font-size: 12px;
+  color: var(--faint);
+}
+
+.hpbar {
+  width: 74px;
+  height: 5px;
+  background: var(--edge-soft);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.hpbar i {
+  display: block;
+  height: 100%;
+  background: #a8483c;
+  transition: width 0.25s ease;
+}
+
+.hpbar i.is-low {
+  background: #e0796c;
+}
+
 /* ---------- 선택 무대 ---------- */
 
 .stage {
@@ -216,6 +259,28 @@ b {
 }
 
 /* 감정 축 라벨. 문장을 읽기 전에 어느 쪽인지 먼저 잡히게 한다. */
+.pick__tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* 어떤 종류의 선택인지 먼저 읽혀야 한다. 특히 '덱 사용'은 저주가 무는 자리다. */
+.pick__kind {
+  padding: 3px 9px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.32);
+  color: rgba(236, 226, 205, 0.85);
+}
+
+.pick__kind--consume {
+  background: rgba(20, 8, 6, 0.6);
+  color: #f0b0a4;
+  box-shadow: inset 0 0 0 1px rgba(240, 176, 164, 0.4);
+}
+
 .pick__tone {
   padding: 3px 9px;
   font-family: var(--serif);
@@ -313,7 +378,7 @@ b {
   font-variant-numeric: tabular-nums;
 }
 
-/* 저주는 아직 아무 규칙도 건드리지 않는다. 나쁜 쪽으로 가고 있다는 신호만 준다. */
+/* 오염도 단계. 옆의 저주 N/전체 M 숫자와 같은 것을 다르게 말한다. */
 .taint {
   padding: 2px 8px;
   border-radius: 2px;
@@ -467,7 +532,64 @@ b {
   color: var(--faint);
 }
 
-/* ---------- 탈출 ---------- */
+/* 저주 비율. 이유를 모른 채 죽지 않도록 숫자로 못박아 둔다. */
+.curseratio {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.curseratio b {
+  font-family: var(--mono);
+  font-size: 15px;
+  color: var(--bone);
+  font-variant-numeric: tabular-nums;
+}
+
+.curseratio__pct {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: #b184c2;
+  font-variant-numeric: tabular-nums;
+}
+
+.curseratio__note {
+  margin: -4px 0 0;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--faint);
+}
+
+/* ---------- 탈출 / 사망 ---------- */
+
+.dead {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 32px 20px;
+  text-align: center;
+  background: #241211;
+  border: 1px solid var(--red);
+  border-radius: 3px;
+}
+
+.dead__word {
+  font-family: var(--serif);
+  font-size: 34px;
+  letter-spacing: 0.18em;
+  text-indent: 0.18em;
+  color: #e0796c;
+}
+
+.dead__sub {
+  font-size: 12px;
+  color: var(--dim);
+}
+
 
 .escaped {
   display: flex;

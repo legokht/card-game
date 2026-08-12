@@ -1,5 +1,6 @@
+import { CURSE_DAMAGE } from './balance';
 import { deckByKind, summarize } from './engine';
-import type { CardKind, ChoiceOption, GameState, Tone } from './types';
+import type { CardKind, ChoiceOption, GameState, OptionKind, Tone } from './types';
 
 /**
  * 상태를 읽어 DOM을 다시 그리기만 한다.
@@ -22,6 +23,14 @@ const TONE_LABEL: Record<Tone, string> = {
   sure: '확실',
 };
 
+/** 어떤 종류의 선택인지 배지로 알려준다. 덱소비형은 특히 미리 보여야 한다. */
+const OPTION_LABEL: Record<OptionKind, string> = {
+  consume: '덱 사용',
+  cleanse: '정리',
+  shard: '탈출',
+  gain: '획득',
+};
+
 const KIND_LABEL: Record<CardKind, string> = {
   reward: '보상',
   neutral: '중립',
@@ -32,9 +41,26 @@ const KIND_LABEL: Record<CardKind, string> = {
 function optionButton(side: 'red' | 'blue', option: ChoiceOption): string {
   return `
     <button class="pick pick--${side}" data-side="${side}">
-      <span class="pick__tone">${TONE_LABEL[option.tone]}</span>
+      <span class="pick__tags">
+        <span class="pick__tone">${TONE_LABEL[option.tone]}</span>
+        <span class="pick__kind pick__kind--${option.kind}">${OPTION_LABEL[option.kind]}</span>
+      </span>
       <span class="pick__text">${option.text}</span>
     </button>`;
+}
+
+/** 체력. 저주 피해를 받는 대상이라 항상 보여야 한다. */
+function vitals(state: GameState): string {
+  const pct = Math.max(0, (state.hp / state.maxHp) * 100);
+  const low = state.hp <= state.maxHp * 0.34;
+  return `
+    <div class="vitals">
+      <span class="top__label">체력</span>
+      <div class="vitals__row">
+        <b class="${low ? 'is-low' : ''}">${state.hp}<span class="of">/${state.maxHp}</span></b>
+        <div class="hpbar"><i class="${low ? 'is-low' : ''}" style="width:${pct}%"></i></div>
+      </div>
+    </div>`;
 }
 
 function shardTrack(state: GameState): string {
@@ -94,8 +120,13 @@ function deckPanel(state: GameState): string {
     <aside class="deck" aria-label="현재 덱">
       <div class="deck__top">
         <span class="deck__size"><b>${s.total}</b>장</span>
-        <span class="taint taint--${s.taintTone}">오염 ${Math.round(s.taint * 100)}% · ${s.taintLabel}</span>
+        <span class="taint taint--${s.taintTone}">${s.taintLabel}</span>
       </div>
+      <div class="curseratio">
+        저주 <b>${s.curse}</b> / 전체 <b>${s.total}</b>
+        <span class="curseratio__pct">${Math.round(s.taint * 100)}%</span>
+      </div>
+      <p class="curseratio__note">덱 사용 선택지에서 저주 한 장당 체력 -${CURSE_DAMAGE}</p>
       <div class="bar">${bars || '<i class="seg seg--none"></i>'}</div>
       <div class="tallies">${counts}</div>
       <div class="piles">${lists || '<p class="pile__empty">덱이 비었다</p>'}</div>
@@ -120,14 +151,24 @@ export function render(root: HTMLElement, state: GameState, handlers: Handlers):
 
   root.innerHTML = `
     <header class="top">
-      <div class="top__step"><span class="top__label">선택</span><b>${state.step - (state.escaped ? 1 : 0)}</b></div>
+      <div class="top__step"><span class="top__label">선택</span><b>${
+        state.step - (state.escaped || state.dead ? 1 : 0)
+      }</b></div>
+      ${vitals(state)}
       ${shardTrack(state)}
       <button id="restart" class="ghost">처음부터</button>
     </header>
 
     <main class="stage">
       ${
-        state.escaped
+        state.dead
+          ? `<div class="dead" role="status">
+               <span class="dead__word">사망</span>
+               <span class="dead__sub">파편 ${state.shards}/${state.escapeTarget}에서 멈췄다 · 선택 ${
+                 state.step
+               }회 · 마지막 덱의 저주 ${summarize(state).curse}/${summarize(state).total}</span>
+             </div>`
+          : state.escaped
           ? `<div class="escaped" role="status">
                <span class="escaped__word">탈출 성공</span>
                <span class="escaped__sub">파편 ${state.shards}개를 모아 밖으로 나왔다 · 선택 ${
