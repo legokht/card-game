@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { Rng } from '../src/engine/rng';
 import { choose, createGame, deckByKind, drawEvent, summarize } from '../src/choice/engine';
+import { canPlay } from '../src/choice/battle';
 import { applyEffects, countKind, resetUidCounter } from '../src/choice/effects';
 import { EVENTS } from '../src/choice/events';
 import { CARD_POOL, CURSE_DAMAGE, ESCAPE_TARGET, MAX_HP, STARTING_DECK } from '../src/choice/balance';
@@ -36,9 +37,15 @@ describe('선택지 데이터', () => {
     expect(gain / (EVENTS.length * 2)).toBeLessThan(0.5);
   });
 
-  it('덱소비형은 실제로 덱에서 뽑는다', () => {
+  it('덱소비형은 실제로 덱에서 뽑는다 (공개 또는 전투)', () => {
+    // 전투도 덱에서 손패를 가져가고 낸 카드를 소모하므로 덱소비형이다.
     const draws = (fx: Effect[]): boolean =>
-      fx.some((f) => f.type === 'draw' || (f.type === 'ifThen' && (draws(f.then) || draws(f.otherwise))));
+      fx.some(
+        (f) =>
+          f.type === 'draw' ||
+          f.type === 'battle' ||
+          (f.type === 'ifThen' && (draws(f.then) || draws(f.otherwise))),
+      );
     for (const e of EVENTS) {
       for (const side of ['red', 'blue'] as const) {
         if (e[side].kind === 'consume') expect(draws(e[side].effects), `${e.id}.${side}`).toBe(true);
@@ -52,6 +59,7 @@ describe('선택지 데이터', () => {
       fx.some(
         (f) =>
           (f.type === 'addRandom' && f.kind === 'curse') ||
+          (f.type === 'battle' && addsCurse(f.onWin)) ||
           (f.type === 'ifThen' && (addsCurse(f.then) || addsCurse(f.otherwise))),
       );
     for (const e of EVENTS) {
@@ -63,7 +71,12 @@ describe('선택지 데이터', () => {
 
   it('파편형은 반드시 탈출 카운트를 올린다', () => {
     const shards = (fx: Effect[]): boolean =>
-      fx.some((f) => f.type === 'shard' || (f.type === 'ifThen' && (shards(f.then) || shards(f.otherwise))));
+      fx.some(
+        (f) =>
+          f.type === 'shard' ||
+          (f.type === 'battle' && shards(f.onWin)) ||
+          (f.type === 'ifThen' && (shards(f.then) || shards(f.otherwise))),
+      );
     for (const e of EVENTS) {
       for (const side of ['red', 'blue'] as const) {
         if (e[side].kind === 'shard') expect(shards(e[side].effects), `${e.id}.${side}`).toBe(true);
@@ -262,14 +275,35 @@ describe('선택 루프', () => {
   it('선택하면 덱이 바뀌고 다음 선택지가 나온다', () => {
     const rng = new Rng('loop');
     const state = createGame(rng);
+    // 전투를 여는 선택지는 루프를 멈추므로, 전투가 없는 쪽을 골라 검증한다.
+    const side = state.current!.red.effects.some((f) => f.type === 'battle') ? 'blue' : 'red';
     const first = state.current!.id;
 
-    choose(state, 'red', rng);
+    choose(state, side, rng);
 
+    expect(state.battle).toBeNull();
     expect(state.step).toBe(2);
     expect(state.current).not.toBeNull();
     expect(state.current!.id).not.toBe(first);
     expect(state.records).toHaveLength(1);
+  });
+
+  it('전투를 여는 선택지는 전투가 끝날 때까지 다음 선택지를 세우지 않는다', () => {
+    const rng = new Rng('pause');
+    const state = createGame(rng);
+    state.current = EVENTS.find((e) => e.id === 'warden')!;
+    const step = state.step;
+
+    choose(state, 'red', rng);
+
+    // 손패에 낼 카드가 하나도 없으면 즉시 쫓겨나 전투가 바로 끝난다.
+    if (state.battle) {
+      expect(state.battle.outcome).toBe('ongoing');
+      expect(state.step).toBe(step);
+      expect(canPlay(state, 'no-such-uid').ok).toBe(false);
+    } else {
+      expect(state.battles).toHaveLength(1);
+    }
   });
 
   it('종료 조건 없이 계속 돈다', () => {

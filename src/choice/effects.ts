@@ -24,6 +24,8 @@ function instantiate(defId: string): CardInstance {
     name: def.name,
     kind: def.kind,
     value: def.value,
+    attack: def.attack,
+    block: def.block,
   };
 }
 
@@ -179,6 +181,15 @@ export function applyEffect(state: GameState, effect: Effect, rng: Rng): string[
       for (let i = 0; i < rewards; i++) lines.push(...applyEffects(state, effect.onReward, rng));
       if (curses === 0 && rewards === 0) lines.push('아무 일도 없었다');
       return lines;
+    }
+
+    /**
+     * 전투를 시작한다. 실제 진행은 battle.ts가 맡고, 여기서는 예약만 한다 —
+     * 효과 적용 도중에 전투를 열면 남은 효과가 전투 뒤에 뒤늦게 터진다.
+     */
+    case 'battle': {
+      state.pendingBattle = { enemyId: effect.enemyId, onWin: effect.onWin };
+      return [];
     }
 
     case 'ifThen': {

@@ -795,4 +795,102 @@ export const EVENTS: ChoiceEvent[] = [
       ],
     },
   },
+
+  {
+    id: 'warden',
+    prompt: '파수꾼이 길 한가운데 서 있다. 비켜줄 생각은 없어 보인다.',
+    readsDeck: true,
+    red: {
+      text: '맞선다 — 이기면 저주 2장을 털어낸다',
+      tone: 'gamble',
+      kind: 'consume',
+      effects: [
+        { type: 'battle', enemyId: 'warden', onWin: [{ type: 'removeKind', kind: 'curse', count: 2 }] },
+      ],
+    },
+    blue: {
+      text: '길을 내준다 — 보상 2장을 두고 돌아간다',
+      tone: 'safe',
+      kind: 'cleanse',
+      effects: [{ type: 'removeKind', kind: 'reward', count: 2 }],
+    },
+  },
+  {
+    id: 'gnawer',
+    prompt: '굶주린 것이 짐 냄새를 맡았다.',
+    readsDeck: true,
+    red: {
+      text: '쫓아낸다 — 이기면 보상 2장',
+      tone: 'greed',
+      kind: 'consume',
+      effects: [
+        { type: 'battle', enemyId: 'gnawer', onWin: [{ type: 'addRandom', kind: 'reward', count: 2 }] },
+      ],
+    },
+    blue: {
+      text: '먹이를 던져준다 — 값싼 3장을 내주고 저주 1장',
+      tone: 'safe',
+      kind: 'gain',
+      effects: [
+        { type: 'removeExtreme', end: 'lowest', count: 3 },
+        { type: 'addRandom', kind: 'curse', count: 1 },
+      ],
+    },
+  },
+  {
+    id: 'stray',
+    prompt: '떠도는 것이 비틀거리며 다가온다. 약해 보인다.',
+    readsDeck: true,
+    red: {
+      text: '베어버린다 — 이기면 저주 1장을 털고 보상 1장',
+      tone: 'sure',
+      kind: 'consume',
+      effects: [
+        {
+          type: 'battle',
+          enemyId: 'stray',
+          onWin: [
+            { type: 'removeKind', kind: 'curse', count: 1 },
+            { type: 'addRandom', kind: 'reward', count: 1 },
+          ],
+        },
+      ],
+    },
+    blue: {
+      text: '숨어서 보낸다 — 저주 1장, 값싼 1장을 흘린다',
+      tone: 'safe',
+      kind: 'gain',
+      effects: [
+        { type: 'addRandom', kind: 'curse', count: 1 },
+        { type: 'removeExtreme', end: 'lowest', count: 1 },
+      ],
+    },
+  },
+  {
+    id: 'keeper',
+    prompt: '탈출구 수호자. 뒤로 문이 보인다.',
+    hasShard: true,
+    readsDeck: true,
+    red: {
+      text: `쓰러뜨리고 지나간다 — 이기면 파편 1, 저주 ${SHARD_CURSE_COST}장`,
+      tone: 'now',
+      kind: 'shard',
+      effects: [
+        {
+          type: 'battle',
+          enemyId: 'keeper',
+          onWin: [
+            { type: 'shard', count: 1 },
+            { type: 'addRandom', kind: 'curse', count: SHARD_CURSE_COST },
+          ],
+        },
+      ],
+    },
+    blue: {
+      text: '문을 포기한다 — 저주 2장을 지운다',
+      tone: 'later',
+      kind: 'cleanse',
+      effects: [{ type: 'removeKind', kind: 'curse', count: 2 }],
+    },
+  },
 ];
