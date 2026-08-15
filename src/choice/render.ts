@@ -1,4 +1,4 @@
-import { CURSE_DAMAGE, CURSE_RULES, ROT_DRAIN } from './balance';
+import { CURSE_RULES, ROT_DRAIN } from './balance';
 import { deckByKind, deckCurseBreakdown, fieldCurseBreakdown, summarize } from './engine';
 import { curseCounts, onEdge } from './field';
 import type {
@@ -242,7 +242,6 @@ function deckPanel(state: GameState): string {
             }</b></span>`,
         )
         .join('')}</div>
-      <p class="curseratio__note">덱을 들여다보는 선택지에서 저주 한 장당 체력 -${CURSE_DAMAGE}</p>
       <div class="bar">${bars || '<i class="seg seg--none"></i>'}</div>
       <div class="tallies">${counts}</div>
       <div class="piles">${lists || '<p class="pile__empty">덱이 비었다</p>'}</div>

@@ -5,7 +5,7 @@ import { applyEffects, countKind, resetUidCounter } from '../src/choice/effects'
 import { EVENTS } from '../src/choice/events';
 import {
   CARD_POOL,
-  CURSE_DAMAGE,
+  CURSE_RULES,
   ESCAPE_TARGET,
   FIELD_START,
   MAX_HP,
@@ -43,6 +43,15 @@ describe('선택지 데이터', () => {
     for (const kind of ['draw', 'purge', 'deck', 'field'] as OptionKind[]) {
       expect(counts[kind], kind).toBeGreaterThanOrEqual(4);
     }
+  });
+
+  it('뽑기형이 전체의 30% 이상이다', () => {
+    // 뽑기가 16%였을 때는 "덱을 만지작거리기만 하고 필드는 안 늘어난다"가 됐다.
+    // 필드가 주인공이므로 뽑기는 세 번에 한 번은 눌릴 수 있어야 한다.
+    const draws =
+      EVENTS.filter((e) => e.red.kind === 'draw').length +
+      EVENTS.filter((e) => e.blue.kind === 'draw').length;
+    expect(draws / (EVENTS.length * 2)).toBeGreaterThanOrEqual(0.3);
   });
 
   it('덱 조작형이 절반을 넘지 않는다', () => {
@@ -212,6 +221,26 @@ describe('효과 적용', () => {
     expect(state.deck.length).toBeGreaterThan(0);
   });
 
+  it('어느 경로로 만들어진 저주든 종류를 갖는다', () => {
+    // 종류 없는 저주는 필드에서 겹치지도, 갉지도, 죽이지도 않는 껍데기다.
+    // transform이 그런 저주를 찍어내고 있었다.
+    const state = createGame(new Rng('typed'));
+    apply(state, [{ type: 'transform', from: 'neutral', to: 'curse', count: 5 }]);
+
+    const curses = state.deck.filter((c) => c.kind === 'curse');
+    expect(curses.length).toBeGreaterThan(0);
+    for (const c of curses) expect(c.curseType, c.name).toBeDefined();
+  });
+
+  it('변환도 파멸 덱 상한을 넘기지 못한다', () => {
+    const state = createGame(new Rng('cap'));
+    // 중립을 전부 저주로 — 상한이 없으면 파멸이 무더기로 쏟아진다.
+    apply(state, [{ type: 'transform', from: 'neutral', to: 'curse', count: 99 }]);
+
+    const doom = state.deck.filter((c) => c.curseType === 'doom').length;
+    expect(doom).toBeLessThanOrEqual(CURSE_RULES.doom.deckMax);
+  });
+
   it('변환은 장수를 유지한 채 종류만 바꾼다', () => {
     const state = createGame(new Rng('tf'));
     const before = state.deck.length;
@@ -241,36 +270,6 @@ describe('효과 적용', () => {
     const rewardBefore = countKind(cursed.deck, 'reward');
     apply(cursed, [effect]);
     expect(countKind(cursed.deck, 'reward')).toBe(rewardBefore + 3);
-  });
-
-  it('덱에서 뽑으면 저주마다 체력이 깎이고 카드는 덱에 남는다', () => {
-    const state = createGame(new Rng('bite'));
-    // 덱을 전부 저주로 갈아 3장을 공개하면 반드시 3장 다 저주다.
-    state.deck = [];
-    apply(state, [{ type: 'addRandom', kind: 'curse', count: 20 }]);
-    const size = state.deck.length;
-    const hp = state.hp;
-
-    apply(state, [
-      { type: 'draw', count: 3, onCurse: [{ type: 'damage', amount: CURSE_DAMAGE }], onReward: [] },
-    ]);
-
-    // 덱이 전부 저주라 3장 모두 물어뜯는다.
-    expect(state.hp).toBe(hp - CURSE_DAMAGE * 3);
-    // 들여다보기만 할 뿐 덱에서 빠져나가지 않는다.
-    expect(state.deck).toHaveLength(size);
-  });
-
-  it('덱에 저주가 없으면 뽑아도 아프지 않다', () => {
-    const state = createGame(new Rng('safe-draw'));
-    expect(countKind(state.deck, 'curse')).toBe(0);
-    const hp = state.hp;
-
-    apply(state, [
-      { type: 'draw', count: 3, onCurse: [{ type: 'damage', amount: CURSE_DAMAGE }], onReward: [] },
-    ]);
-
-    expect(state.hp).toBe(hp);
   });
 
   it('회복은 최대 체력을 넘지 않는다', () => {
@@ -399,27 +398,15 @@ describe('사망', () => {
     const rng = new Rng('death');
     const state = createGame(rng);
     expect(state.hp).toBe(MAX_HP);
-    // 최대 체력이 바뀌어도 치명적이도록, 한 번에 죽을 만큼만 남겨둔다.
-    state.hp = CURSE_DAMAGE;
 
-    state.deck = [];
-    state.field = [];
-    apply(state, [{ type: 'addRandom', kind: 'curse', count: 10 }]);
     state.current = {
       id: 'test-lethal',
       prompt: '',
       red: {
         text: '',
         tone: 'gamble',
-        kind: 'draw',
-        effects: [
-          {
-            type: 'draw',
-            count: 10,
-            onCurse: [{ type: 'damage', amount: CURSE_DAMAGE }],
-            onReward: [],
-          },
-        ],
+        kind: 'deck',
+        effects: [{ type: 'damage', amount: MAX_HP }],
       },
       blue: { text: '', tone: 'safe', kind: 'deck', effects: [] },
     };
@@ -449,8 +436,6 @@ describe('사망', () => {
     const state = createGame(rng);
     state.shards = ESCAPE_TARGET - 1;
     state.hp = 1;
-    state.deck = [];
-    apply(state, [{ type: 'addRandom', kind: 'curse', count: 5 }]);
     state.current = {
       id: 'test-shard-lethal',
       prompt: '',
@@ -460,7 +445,7 @@ describe('사망', () => {
         kind: 'shard',
         effects: [
           { type: 'shard', count: 1 },
-          { type: 'draw', count: 3, onCurse: [{ type: 'damage', amount: CURSE_DAMAGE }], onReward: [] },
+          { type: 'damage', amount: 5 },
         ],
       },
       blue: { text: '', tone: 'safe', kind: 'deck', effects: [] },

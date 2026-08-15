@@ -1,22 +1,6 @@
-import { CURSE_DAMAGE, REWARD_HEAL, ROT_BURST, SHARD_CURSE_COST } from './balance';
-import type { ChoiceEvent, Effect } from './types';
+import { ROT_BURST, SHARD_CURSE_COST } from './balance';
+import type { ChoiceEvent } from './types';
 
-/** 덱소비형의 기본 판정: 저주는 체력을 깎고, 보상은 조금 회복시킨다. */
-const BITE: Effect[] = [{ type: 'damage', amount: CURSE_DAMAGE }];
-const SALVE: Effect[] = [{ type: 'heal', amount: REWARD_HEAL }];
-const LOOT: Effect[] = [{ type: 'addRandom', kind: 'reward', count: 1 }];
-
-/** 덱에서 n장을 공개하는 효과. 뽑은 카드는 전부 덱으로 돌아간다. */
-const reveal = (count: number, onReward: Effect[] = SALVE): Effect => ({
-  type: 'draw',
-  count,
-  onCurse: BITE,
-  onReward,
-});
-
-/** 문구와 수치가 어긋나지 않도록 본문도 상수에서 만든다. */
-const revealText = (count: number, payoff: string): string =>
-  `덱에서 ${count}장을 공개한다 — 저주마다 체력 -${CURSE_DAMAGE}, 보상마다 ${payoff}`;
 
 /**
  * 하드코딩된 선택지 24개.
@@ -51,6 +35,7 @@ export const EVENTS: ChoiceEvent[] = [
   {
     id: 'crack-1',
     prompt: '벽 틈으로 바깥 바람이 새어든다.',
+    readsField: true,
     hasShard: true,
     red: {
       text: `파편을 뜯어낸다 — 파편 1, 저주 ${SHARD_CURSE_COST}장, 값싼 2장이 부서진다`,
@@ -63,11 +48,11 @@ export const EVENTS: ChoiceEvent[] = [
       ],
     },
     blue: {
-      text: '틈을 지나친다 — 보상 1장을 찾는다, 중립 1장을 잃는다',
+      text: '틈을 지나치며 덱에서 2장을 펼친다 — 덱의 중립 1장을 잃는다',
       tone: 'later',
-      kind: 'deck',
+      kind: 'draw',
       effects: [
-        { type: 'addRandom', kind: 'reward', count: 1 },
+        { type: 'drawField', count: 2 },
         { type: 'removeKind', kind: 'neutral', count: 1 },
       ],
     },
@@ -383,12 +368,13 @@ export const EVENTS: ChoiceEvent[] = [
   {
     id: 'gate',
     prompt: '문지기가 길을 막는다. 짐을 보여야 지나간다.',
+    readsField: true,
     readsDeck: true,
     red: {
-      text: revealText(3, `체력 +${REWARD_HEAL}`),
+      text: '문지기 앞에서 짐을 펼친다 — 덱에서 3장을 필드에 펼친다 — 겹치면 그 자리에서 터진다',
       tone: 'gamble',
-      kind: 'deck',
-      effects: [reveal(3)],
+      kind: 'draw',
+      effects: [{ type: 'drawField', count: 3 }],
     },
     blue: {
       text: '짐을 버리고 지나간다 — 값싼 3장을 버린다',
@@ -400,20 +386,20 @@ export const EVENTS: ChoiceEvent[] = [
   {
     id: 'miasma',
     prompt: '독기가 자욱하다. 숨을 참고 지날 수 있을까.',
+    readsField: true,
     readsDeck: true,
     red: {
-      text: revealText(4, `체력 +${REWARD_HEAL}`),
+      text: '숨을 참고 안쪽까지 — 덱에서 4장을 필드에 펼친다 — 겹치면 그 자리에서 터진다',
       tone: 'now',
-      kind: 'deck',
-      effects: [reveal(4)],
+      kind: 'draw',
+      effects: [{ type: 'drawField', count: 4 }],
     },
     blue: {
-      text: '길게 돌아간다 — 보상 1장, 저주 1장, 값싼 2장을 흘린다',
+      text: '길게 돌아가며 덱에서 2장을 펼친다 — 덱의 값싼 2장을 흘린다',
       tone: 'later',
-      kind: 'deck',
+      kind: 'draw',
       effects: [
-        { type: 'addRandom', kind: 'reward', count: 1 },
-        { type: 'addRandom', kind: 'curse', count: 1 },
+        { type: 'drawField', count: 2 },
         { type: 'removeExtreme', end: 'lowest', count: 2 },
       ],
     },
@@ -421,29 +407,31 @@ export const EVENTS: ChoiceEvent[] = [
   {
     id: 'trial',
     prompt: '시험대에 손을 얹는다. 얼마나 깊이 넣을지는 당신이 정한다.',
+    readsField: true,
     readsDeck: true,
     red: {
-      text: revealText(2, '보상 1장'),
+      text: '손끝만 얹는다 — 덱에서 2장을 필드에 펼친다 — 겹치면 그 자리에서 터진다',
       tone: 'sure',
-      kind: 'deck',
-      effects: [reveal(2, LOOT)],
+      kind: 'draw',
+      effects: [{ type: 'drawField', count: 2 }],
     },
     blue: {
-      text: revealText(5, '보상 1장'),
+      text: '팔뚝까지 밀어넣는다 — 덱에서 5장을 필드에 펼친다 — 겹치면 그 자리에서 터진다',
       tone: 'gamble',
-      kind: 'deck',
-      effects: [reveal(5, LOOT)],
+      kind: 'draw',
+      effects: [{ type: 'drawField', count: 5 }],
     },
   },
   {
     id: 'beast-den',
     prompt: '짐승의 굴. 안쪽에서 숨소리가 난다.',
+    readsField: true,
     readsDeck: true,
     red: {
-      text: revealText(4, '보상 1장'),
+      text: '굴 안으로 들어간다 — 덱에서 4장을 필드에 펼친다 — 겹치면 그 자리에서 터진다',
       tone: 'greed',
-      kind: 'deck',
-      effects: [reveal(4, LOOT)],
+      kind: 'draw',
+      effects: [{ type: 'drawField', count: 4 }],
     },
     blue: {
       text: '입구를 막는다 — 저주 2장을 지운다',
@@ -455,12 +443,13 @@ export const EVENTS: ChoiceEvent[] = [
   {
     id: 'ferry',
     prompt: '뱃사공이 뱃삯 대신 짐을 뒤진다.',
+    readsField: true,
     readsDeck: true,
     red: {
-      text: revealText(1, '보상 1장'),
+      text: '한 장만 내민다 — 덱에서 1장을 필드에 펼친다 — 겹치면 그 자리에서 터진다',
       tone: 'sure',
-      kind: 'deck',
-      effects: [reveal(1, LOOT)],
+      kind: 'draw',
+      effects: [{ type: 'drawField', count: 1 }],
     },
     blue: {
       text: '뱃삯을 낸다 — 보상 2장을 내주고 저주 2장을 떠넘긴다',
@@ -475,12 +464,13 @@ export const EVENTS: ChoiceEvent[] = [
   {
     id: 'crucible',
     prompt: '용광로가 짐을 통째로 시험한다.',
+    readsField: true,
     readsDeck: true,
     red: {
-      text: revealText(6, `체력 +${REWARD_HEAL}`),
+      text: '통째로 쏟아붓는다 — 덱에서 6장을 필드에 펼친다 — 겹치면 그 자리에서 터진다',
       tone: 'gamble',
-      kind: 'deck',
-      effects: [reveal(6)],
+      kind: 'draw',
+      effects: [{ type: 'drawField', count: 6 }],
     },
     blue: {
       text: '불에서 물러난다 — 저주 1장을 지우고 값싼 2장을 버린다',
@@ -495,12 +485,13 @@ export const EVENTS: ChoiceEvent[] = [
   {
     id: 'oracle',
     prompt: '점쟁이가 짐에서 운을 읽는다.',
+    readsField: true,
     readsDeck: true,
     red: {
-      text: revealText(3, '보상 1장'),
+      text: '점괘를 펼친다 — 덱에서 3장을 필드에 펼친다 — 겹치면 그 자리에서 터진다',
       tone: 'gamble',
-      kind: 'deck',
-      effects: [reveal(3, LOOT)],
+      kind: 'draw',
+      effects: [{ type: 'drawField', count: 3 }],
     },
     blue: {
       text: '점을 거절한다 — 보상 1장, 저주 1장, 값싼 2장을 흘린다',
@@ -516,29 +507,34 @@ export const EVENTS: ChoiceEvent[] = [
   {
     id: 'depths',
     prompt: '더 깊이 들어갈수록 값진 것이 있다. 그리고 더 많은 것이 있다.',
+    readsField: true,
     readsDeck: true,
     red: {
-      text: revealText(5, `체력 +${REWARD_HEAL}`),
+      text: '더 깊이 — 덱에서 5장을 필드에 펼친다 — 겹치면 그 자리에서 터진다',
       tone: 'greed',
-      kind: 'deck',
-      effects: [reveal(5)],
+      kind: 'draw',
+      effects: [{ type: 'drawField', count: 5 }],
     },
     blue: {
-      text: revealText(2, `체력 +${REWARD_HEAL}`),
+      text: '얕게 — 덱에서 2장을 필드에 펼친다 — 겹치면 그 자리에서 터진다',
       tone: 'safe',
-      kind: 'deck',
-      effects: [reveal(2)],
+      kind: 'draw',
+      effects: [{ type: 'drawField', count: 2 }],
     },
   },
   {
     id: 'vigil',
     prompt: '밤을 새운다. 짐 속에서 무언가 뒤척인다.',
+    readsField: true,
     readsDeck: true,
     red: {
-      text: revealText(3, '체력 +2'),
+      text: '밤새 뒤적인다 — 덱에서 3장을 필드에 펼치고 체력 +2',
       tone: 'sure',
-      kind: 'deck',
-      effects: [{ type: 'draw', count: 3, onCurse: BITE, onReward: [{ type: 'heal', amount: 2 }] }],
+      kind: 'draw',
+      effects: [
+        { type: 'drawField', count: 3 },
+        { type: 'heal', amount: 2 },
+      ],
     },
     blue: {
       text: '뜬눈으로 지킨다 — 저주 1장을 지우고 보상 1장을 잃는다',
@@ -553,16 +549,17 @@ export const EVENTS: ChoiceEvent[] = [
   {
     id: 'gauntlet',
     prompt: '탈출구가 보인다. 통로가 좁고, 안에서 소리가 난다.',
+    readsField: true,
     hasShard: true,
     readsDeck: true,
     red: {
-      text: `파편 1을 캔다 — 저주 ${SHARD_CURSE_COST}장, 덱에서 3장을 공개해 저주마다 체력 -${CURSE_DAMAGE}`,
+      text: `파편 1을 캔다 — 저주 ${SHARD_CURSE_COST}장, 덱에서 3장이 필드에 쏟아진다`,
       tone: 'now',
       kind: 'shard',
       effects: [
         { type: 'shard', count: 1 },
         { type: 'addRandom', kind: 'curse', count: SHARD_CURSE_COST },
-        reveal(3, []),
+        { type: 'drawField', count: 3 },
       ],
     },
     blue: {
@@ -581,10 +578,10 @@ export const EVENTS: ChoiceEvent[] = [
     prompt: '샘물에 손을 담근다. 무언가 만져진다.',
     readsField: true,
     red: {
-      text: '덱에서 2장을 필드에 펼친다',
+      text: '밤새 뒤적인다 — 덱에서 3장을 필드에 펼친다 — 겹치면 그 자리에서 터진다',
       tone: 'greed',
       kind: 'draw',
-      effects: [{ type: 'drawField', count: 2 }],
+      effects: [{ type: 'drawField', count: 3 }],
     },
     blue: {
       text: '손만 씻는다 — 필드의 저주 1장을 없앤다',
@@ -604,12 +601,12 @@ export const EVENTS: ChoiceEvent[] = [
       effects: [{ type: 'pushLuck' }],
     },
     blue: {
-      text: '손을 거둔다 — 보상 1장을 덱에 넣고 저주 1장',
+      text: '한 장만 집고 손을 거둔다 — 덱에서 1장, 체력 +2',
       tone: 'safe',
-      kind: 'deck',
+      kind: 'draw',
       effects: [
-        { type: 'addRandom', kind: 'reward', count: 1 },
-        { type: 'addRandom', kind: 'curse', count: 1 },
+        { type: 'drawField', count: 1 },
+        { type: 'heal', amount: 2 },
       ],
     },
   },

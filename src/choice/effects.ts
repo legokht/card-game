@@ -32,6 +32,13 @@ export function resetUidCounter(): void {
   uidCounter = 0;
 }
 
+/**
+ * `curseType`을 반드시 같이 옮긴다.
+ *
+ * 이게 빠져 있던 동안 transform으로 만들어진 저주는 종류가 없는 껍데기였다 —
+ * 필드에 깔려도 겹치지 않고, 부패라면 체력을 갉지도 않고, 파멸이라도 죽이지
+ * 않았다. 오염도 숫자만 올라가고 저주로서는 아무 일도 하지 않았다.
+ */
 function instantiate(defId: string): CardInstance {
   const def = cardById(defId);
   uidCounter += 1;
@@ -41,6 +48,7 @@ function instantiate(defId: string): CardInstance {
     name: def.name,
     kind: def.kind,
     value: def.value,
+    ...(def.curseType ? { curseType: def.curseType } : {}),
   };
 }
 
@@ -159,7 +167,9 @@ export function applyEffect(state: GameState, effect: Effect, rng: Rng): string[
       const pool = poolOf(effect.to);
       const made: string[] = [];
       for (let i = 0; i < targets.length; i++) {
-        const card = instantiate(rng.pick(pool).id);
+        // addRandom과 같은 이유로 저주는 makeCurse를 거친다 — 안 그러면
+        // "중립이 전부 저주가 된다" 한 방으로 파멸이 상한을 넘어 쏟아진다.
+        const card = effect.to === 'curse' ? makeCurse(state, rng) : instantiate(rng.pick(pool).id);
         state.deck.push(card);
         made.push(card.name);
       }
@@ -187,25 +197,6 @@ export function applyEffect(state: GameState, effect: Effect, rng: Rng): string[
       state.hp = Math.min(state.maxHp, state.hp + effect.amount);
       const gained = state.hp - before;
       return gained > 0 ? [`체력 +${gained} (${state.hp}/${state.maxHp})`] : [];
-    }
-
-    /**
-     * 덱을 실제로 써야만 저주가 아프다. 덱 전체를 섞어 count장을 공개하고,
-     * 종류별 결과를 뽑힌 장수만큼 적용한다. 카드는 전부 덱에 남는다 —
-     * 저주는 지우기 전까지 계속 물어뜯는다.
-     */
-    case 'draw': {
-      if (state.deck.length === 0) return ['덱이 비어 뽑을 것이 없었다'];
-
-      const revealed = rng.shuffle(state.deck).slice(0, effect.count);
-      const curses = revealed.filter((c) => c.kind === 'curse').length;
-      const rewards = revealed.filter((c) => c.kind === 'reward').length;
-
-      const lines = [`공개: ${revealed.map((c) => c.name).join(', ')}`];
-      for (let i = 0; i < curses; i++) lines.push(...applyEffects(state, effect.onCurse, rng));
-      for (let i = 0; i < rewards; i++) lines.push(...applyEffects(state, effect.onReward, rng));
-      if (curses === 0 && rewards === 0) lines.push('아무 일도 없었다');
-      return lines;
     }
 
     /* ---------- 필드 조작 ---------- */

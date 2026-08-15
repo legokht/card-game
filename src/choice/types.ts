@@ -72,13 +72,6 @@ export type Effect =
   | { type: 'shard'; count: number }
   | { type: 'damage'; amount: number }
   | { type: 'heal'; amount: number }
-  /**
-   * 덱에서 count장을 공개해 종류별로 결과를 적용한다.
-   *
-   * 뽑은 카드는 전부 덱으로 돌아간다. 저주는 지우기 전까지 계속 아프고,
-   * 덱의 저주 비율이 그대로 이 선택지의 위험도가 된다.
-   */
-  | { type: 'draw'; count: number; onCurse: Effect[]; onReward: Effect[] }
   /** 전투를 시작한다. 이기면 onWin이 적용된다. */
   /** 덱에서 필드로 가져온다. 저주가 겹치면 그 자리에서 발동한다. */
   | { type: 'drawField'; count: number }
