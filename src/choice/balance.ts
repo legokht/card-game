@@ -1,4 +1,4 @@
-import type { CardDef, CurseType, EnemyDef } from './types';
+import type { CardDef, CurseType } from './types';
 
 /**
  * 선택 화면의 조정 가능한 수치를 전부 여기 모은다.
@@ -10,14 +10,13 @@ export const ESCAPE_TARGET = 5;
 /**
  * 시작 체력. 0이 되면 사망.
  *
- * 손패가 생기면서 크게 올렸다. 부패는 손패에 있는 동안 **매 선택마다** 체력을
- * 갉아먹는데, 이 지속 피해가 30수쯤이면 누적 -30을 넘는다. 체력 18로는
- * 관리를 하든 안 하든 똑같이 녹아서 신중한 플레이가 무지성과 구분되지 않았다
- * (양쪽 다 11~12%).
+ * 전투가 빠지면서 체력을 쓰는 곳이 저주뿐이 되어 34에서 20으로 내렸다.
+ * 34에서는 무지성으로 계속 뽑아도 67%가 탈출해서, "계속 뽑으면 죽는다"가
+ * 성립하지 않았다.
  *
- * 자동 플레이 400판 기준: 무지성 32%, 손패를 관리하는 플레이 40%.
+ * 자동 플레이 400판 기준: 무지성 탈출 43%, 필드를 관리하는 플레이 59%.
  */
-export const MAX_HP = 34;
+export const MAX_HP = 20;
 
 /**
  * 덱소비형 선택지에서 저주를 한 장 뽑을 때마다 깎이는 체력.
@@ -69,40 +68,45 @@ export const TAINT_LEVELS = [
 /**
  * 카드 풀.
  *
- * `value`는 "가장 값나가는 것을 버린다" 같은 선택지가 무엇을 집을지 정하고,
- * `attack`/`block`은 전투에서 쓰인다. 저주는 둘 다 0이며 애초에 낼 수 없다.
+ * `value`는 "가장 값나가는 것을 버린다" 같은 선택지가 무엇을 집을지 정한다.
+ * 시너지는 아직 없으므로 카드에 다른 능력은 없다.
  */
 export const CARD_POOL: CardDef[] = [
-  // 보상 — 공격형과 방어형이 갈린다
-  { id: 'silver-blade', name: '은빛 검', kind: 'reward', value: 4, attack: 4, block: 0 },
-  { id: 'steel-guard', name: '강철 방패', kind: 'reward', value: 4, attack: 0, block: 5 },
-  { id: 'rune-spear', name: '룬 창', kind: 'reward', value: 5, attack: 5, block: 0 },
-  { id: 'firebomb', name: '화염병', kind: 'reward', value: 4, attack: 6, block: 0 },
-  { id: 'chainmail', name: '사슬갑옷', kind: 'reward', value: 3, attack: 0, block: 4 },
-  { id: 'hawk-eye', name: '매의 눈', kind: 'reward', value: 3, attack: 3, block: 1 },
-  { id: 'blessed-cup', name: '축복의 잔', kind: 'reward', value: 6, attack: 2, block: 4 },
-  { id: 'old-relic', name: '오래된 성물', kind: 'reward', value: 6, attack: 6, block: 2 },
+  // 보상
+  { id: 'silver-blade', name: '은빛 검', kind: 'reward', value: 4 },
+  { id: 'steel-guard', name: '강철 방패', kind: 'reward', value: 4 },
+  { id: 'rune-spear', name: '룬 창', kind: 'reward', value: 5 },
+  { id: 'firebomb', name: '화염병', kind: 'reward', value: 4 },
+  { id: 'chainmail', name: '사슬갑옷', kind: 'reward', value: 3 },
+  { id: 'hawk-eye', name: '매의 눈', kind: 'reward', value: 3 },
+  { id: 'blessed-cup', name: '축복의 잔', kind: 'reward', value: 6 },
+  { id: 'old-relic', name: '오래된 성물', kind: 'reward', value: 6 },
 
-  // 저주 — 낼 수 없고, 손패에서 같은 종류가 2장 모이면 발동한다
-  { id: 'doom', name: '파멸', kind: 'curse', curseType: 'doom', value: 0, attack: 0, block: 0 },
-  { id: 'rot', name: '부패', kind: 'curse', curseType: 'rot', value: 1, attack: 0, block: 0 },
-  { id: 'erode', name: '침식', kind: 'curse', curseType: 'erode', value: 1, attack: 0, block: 0 },
+  // 저주 — 필드에서 같은 종류가 2장 모이면 발동하고 그 2장은 소멸한다
+  { id: 'doom', name: '파멸', kind: 'curse', curseType: 'doom', value: 0 },
+  { id: 'rot', name: '부패', kind: 'curse', curseType: 'rot', value: 1 },
+  { id: 'erode', name: '침식', kind: 'curse', curseType: 'erode', value: 1 },
 
-  // 중립 — 약하지만 없는 것보다는 낫다
-  { id: 'worn-dagger', name: '낡은 단검', kind: 'neutral', value: 2, attack: 2, block: 0 },
-  { id: 'wood-shield', name: '나무 방패', kind: 'neutral', value: 2, attack: 0, block: 2 },
-  { id: 'flint', name: '부싯돌', kind: 'neutral', value: 1, attack: 1, block: 0 },
-  { id: 'travel-coat', name: '여행자의 외투', kind: 'neutral', value: 2, attack: 0, block: 2 },
-  { id: 'pocket-knife', name: '주머니칼', kind: 'neutral', value: 1, attack: 1, block: 1 },
+  // 중립
+  { id: 'worn-dagger', name: '낡은 단검', kind: 'neutral', value: 2 },
+  { id: 'wood-shield', name: '나무 방패', kind: 'neutral', value: 2 },
+  { id: 'flint', name: '부싯돌', kind: 'neutral', value: 1 },
+  { id: 'travel-coat', name: '여행자의 외투', kind: 'neutral', value: 2 },
+  { id: 'pocket-knife', name: '주머니칼', kind: 'neutral', value: 1 },
 
-  // 파편 — 전투에는 쓸모없지만 손패를 막지도 않는다
-  { id: 'shard', name: '탈출구 파편', kind: 'shard', value: 0, attack: 1, block: 0 },
+  // 파편 — 탈출 진척을 나타낸다
+  { id: 'shard', name: '탈출구 파편', kind: 'shard', value: 0 },
 ];
 
 /* ---------- 손패와 저주 ---------- */
 
-/** 게임 시작 시 덱에서 손패로 가져오는 장수. 손패 상한은 없다. */
-export const HAND_START = 5;
+/**
+ * 게임 시작 시 필드에 놓인 장수.
+ *
+ * 0이다. 필드는 오직 선택지를 통해서만 채워진다 — 첫 장부터 플레이어가
+ * 뽑기로 결정한 결과여야 한다.
+ */
+export const FIELD_START = 0;
 
 export interface CurseRule {
   type: CurseType;
@@ -114,8 +118,12 @@ export interface CurseRule {
   deckMax: number;
   /** 저주를 새로 넣을 때의 상대 가중치. */
   weight: number;
-  /** 발동한 2장이 어디로 가는지. */
-  afterTrigger: 'deck' | 'gone';
+  /**
+   * 발동한 2장의 행선지. 카드는 덱으로 돌아가지 않으므로 지금은 전부 소멸이다.
+   * 되돌리는 규칙이 생기면 여기서 갈린다.
+   */
+  afterTrigger: 'gone';
+  /** 겹쳤을 때 무슨 일이 일어나는지. "겹치면 ___" 형태로 이어 붙여 쓴다. */
   description: string;
 }
 
@@ -125,35 +133,33 @@ export const CURSE_RULES: Record<CurseType, CurseRule> = {
     name: '파멸',
     deckMax: 3,
     weight: 1,
-    // 즉사라 어디로 가든 의미가 없다.
     afterTrigger: 'gone',
-    description: '2장 겹치면 즉사',
+    description: '즉사한다',
   },
   rot: {
     type: 'rot',
     name: '부패',
     deckMax: 99,
     weight: 2,
-    // 터지고 나면 사라진다. 대신 터질 때 아프다.
     afterTrigger: 'gone',
-    description: `손패에 있는 동안 매 선택 체력 -${1}, 2장 겹치면 크게 터진다`,
+    description: '크게 터진다',
   },
   erode: {
     type: 'erode',
     name: '침식',
     deckMax: 99,
     weight: 3,
-    // 덱으로 돌아가 다시 손에 잡힌다.
-    afterTrigger: 'deck',
-    description: '2장 겹치면 손패의 멀쩡한 카드가 저주로 바뀐다',
+    // 필드에서 벗어난 카드는 어디로도 돌아가지 않는다.
+    afterTrigger: 'gone',
+    description: '멀쩡한 카드가 저주로 바뀐다',
   },
 };
 
-/** 손패의 부패 한 장당 매 선택 깎이는 체력. */
+/** 필드의 부패 한 장당 매 선택 깎이는 체력. */
 export const ROT_DRAIN = 1;
 /** 부패 2장이 겹쳤을 때 한 번에 깎이는 체력. */
 export const ROT_BURST = 4;
-/** 침식 2장이 겹쳤을 때 저주로 바뀌는 손패 카드 수. */
+/** 침식 2장이 겹쳤을 때 저주로 바뀌는 필드 카드 수. */
 export const ERODE_CONVERT = 2;
 
 /** 저주를 새로 만들 때 종류를 고른다. 덱 상한을 넘는 종류는 제외된다. */
@@ -167,54 +173,37 @@ export function curseWeights(deckCounts: Record<CurseType, number>): CurseType[]
   return out.length > 0 ? out : ['rot'];
 }
 
-/* ---------- 전투 ---------- */
+
+/* ---------- 덱 ---------- */
 
 /**
- * 전투는 따로 뽑지 않고 지금 들고 있는 상시 손패로 싸운다.
- * 그래서 "전투 전에 손패를 갖춰놨느냐"가 곧 전투 준비다.
- */
-
-/**
- * 적.
+ * 시작 덱 20장. 저주는 한 장도 없다 — 덱에 들어오는 저주는 전부 선택의 결과라야
+ * "내가 넣은 저주가 날 죽인다"가 성립한다.
  *
- * 손패 5장 중 쓸 수 있는 카드는 깨끗한 덱이라도 4장 남짓이고, 그중 방어형은
- * 피해를 못 낸다. 실제로 손패 하나가 뽑아내는 피해는 8~13이다. 체력을 그보다
- * 높게 잡으면 이길 수 없는 전투가 되어 전부 도망만 치게 된다 (체력 13~16으로
- * 잡았을 때 도망 73%).
+ * 카드는 덱에서 필드로 한 방향으로만 흐르고 되돌아오지 않으므로, 버린 더미도
+ * 재순환도 없다. 이 20장이 한 판에 뽑을 수 있는 전부다.
  */
-export const ENEMIES: EnemyDef[] = [
-  { id: 'stray', name: '떠도는 것', hp: 6, attack: 2 },
-  { id: 'warden', name: '파수꾼', hp: 9, attack: 2 },
-  { id: 'gnawer', name: '굶주린 것', hp: 8, attack: 3 },
-  { id: 'keeper', name: '탈출구 수호자', hp: 12, attack: 3 },
-];
-
-/**
- * 도망 대가.
- *
- * 싸면 전부 도망만 치고, 비싸면 도망이 선택지가 아니게 된다. 체력은 즉시
- * 아프고 저주는 나중에 아프도록 나눠 두었다.
- */
-export const FLEE_HP_COST = 2;
-/** 도망칠 때 저주 1장을 떠안을 확률. */
-export const FLEE_CURSE_CHANCE = 0.5;
-
-export function enemyById(id: string): EnemyDef {
-  const found = ENEMIES.find((e) => e.id === id);
-  if (!found) throw new Error(`알 수 없는 적 id: ${id}`);
-  return found;
-}
-
-/** 시작 덱. 중립 위주로 밋밋하게 두고, 변화는 전부 선택에서 나오게 한다. */
 export const STARTING_DECK: string[] = [
   'worn-dagger',
   'worn-dagger',
+  'worn-dagger',
+  'wood-shield',
   'wood-shield',
   'wood-shield',
   'flint',
+  'flint',
+  'travel-coat',
   'travel-coat',
   'pocket-knife',
+  'pocket-knife',
   'silver-blade',
+  'silver-blade',
+  'steel-guard',
+  'rune-spear',
+  'firebomb',
+  'chainmail',
+  'hawk-eye',
+  'blessed-cup',
 ];
 
 export function cardById(id: string): CardDef {

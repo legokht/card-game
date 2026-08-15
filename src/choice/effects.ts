@@ -1,21 +1,22 @@
 import type { Rng } from '../engine/rng';
 import { cardById, poolOf } from './balance';
 import {
-  addToHand,
-  discardCurse,
-  drawToHand,
+  addToField,
+  drawToField,
   makeCurse,
-  mulligan,
   peek,
+  purgeAll,
+  purgeCurse,
+  purgeRandom,
   resolvePairs,
-} from './hand';
+} from './field';
 import type {
   CardInstance,
   CardKind,
   Condition,
   Effect,
   GameState,
-  HandCondition,
+  FieldCondition,
 } from './types';
 
 /**
@@ -40,8 +41,6 @@ function instantiate(defId: string): CardInstance {
     name: def.name,
     kind: def.kind,
     value: def.value,
-    attack: def.attack,
-    block: def.block,
   };
 }
 
@@ -49,14 +48,14 @@ export function countKind(deck: CardInstance[], kind: CardKind): number {
   return deck.filter((c) => c.kind === kind).length;
 }
 
-export function evaluateHand(state: GameState, cond: HandCondition): boolean {
+export function evaluateField(state: GameState, cond: FieldCondition): boolean {
   switch (cond.type) {
-    case 'handCurseAtLeast':
-      return countKind(state.hand, 'curse') >= cond.n;
-    case 'handSizeAtLeast':
-      return state.hand.length >= cond.n;
-    case 'handSizeAtMost':
-      return state.hand.length <= cond.n;
+    case 'fieldCurseAtLeast':
+      return countKind(state.field, 'curse') >= cond.n;
+    case 'fieldSizeAtLeast':
+      return state.field.length >= cond.n;
+    case 'fieldSizeAtMost':
+      return state.field.length <= cond.n;
   }
 }
 
@@ -209,19 +208,10 @@ export function applyEffect(state: GameState, effect: Effect, rng: Rng): string[
       return lines;
     }
 
-    /**
-     * 전투를 시작한다. 실제 진행은 battle.ts가 맡고, 여기서는 예약만 한다 —
-     * 효과 적용 도중에 전투를 열면 남은 효과가 전투 뒤에 뒤늦게 터진다.
-     */
-    case 'battle': {
-      state.pendingBattle = { enemyId: effect.enemyId, onWin: effect.onWin };
-      return [];
-    }
+    /* ---------- 필드 조작 ---------- */
 
-    /* ---------- 손패 조작 ---------- */
-
-    case 'drawHand':
-      return drawToHand(state, effect.count, rng);
+    case 'drawField':
+      return drawToField(state, effect.count, rng);
 
     case 'pushLuck':
       // 실제 진행은 UI가 한 장씩 몰고 간다. 여기서는 모드만 연다.
@@ -231,20 +221,23 @@ export function applyEffect(state: GameState, effect: Effect, rng: Rng): string[
     case 'peek':
       return peek(state, effect.count, effect.keep, rng);
 
-    case 'discardCurse':
-      return discardCurse(state, effect.count, effect.curseType);
+    case 'purgeCurse':
+      return purgeCurse(state, effect.count, effect.curseType);
 
-    case 'mulligan':
-      return mulligan(state, effect.draw, rng);
+    case 'purgeRandom':
+      return purgeRandom(state, effect.count, rng);
 
-    case 'healPerHandCard': {
-      const gained = state.hand.length * effect.amount;
-      if (gained === 0) return ['손패가 비어 회복이 없다'];
+    case 'purgeAll':
+      return purgeAll(state);
+
+    case 'healPerFieldCard': {
+      const gained = state.field.length * effect.amount;
+      if (gained === 0) return ['필드가 비어 회복이 없다'];
       return applyEffect(state, { type: 'heal', amount: gained }, rng);
     }
 
-    case 'ifHand': {
-      const branch = evaluateHand(state, effect.when) ? effect.then : effect.otherwise;
+    case 'ifField': {
+      const branch = evaluateField(state, effect.when) ? effect.then : effect.otherwise;
       return branch.flatMap((e) => applyEffect(state, e, rng));
     }
 
@@ -259,14 +252,14 @@ export function applyEffects(state: GameState, effects: Effect[], rng: Rng): str
   return effects.flatMap((e) => applyEffect(state, e, rng));
 }
 
-/** 손패로 바로 넣는 보상. 선택지에서 쓴다. */
-export function grantToHand(
+/** 필드로 바로 놓는 보상. 선택지에서 쓴다. */
+export function grantToField(
   state: GameState,
   kind: 'reward' | 'neutral',
   count: number,
   rng: Rng,
 ): string[] {
-  const lines = addToHand(state, kind, count, rng);
+  const lines = addToField(state, kind, count, rng);
   for (const t of resolvePairs(state, rng)) lines.push(...t.lines);
   return lines;
 }

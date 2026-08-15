@@ -1,19 +1,17 @@
 import type { Rng } from '../engine/rng';
 import {
   ESCAPE_TARGET,
-  HAND_START,
+  FIELD_START,
   MAX_HP,
   RECENT_WINDOW,
   SHARD_EVENT_RATE,
   STARTING_DECK,
   TAINT_LEVELS,
 } from './balance';
-import { collectHand, isOver, startBattle } from './battle';
 import { applyEffects, buildDeck, countKind } from './effects';
-import { applyRotDrain, curseCounts, drawOne, drawToHand, onEdge, resolvePairs } from './hand';
+import { applyRotDrain, curseCounts, drawOne, onEdge, resolvePairs } from './field';
 import { EVENTS } from './events';
 import type {
-  BattleRecord,
   CardInstance,
   CardKind,
   ChoiceEvent,
@@ -44,8 +42,14 @@ export interface DeckSummary {
  * 덱 요약은 손패까지 합쳐서 센다 — 안 그러면 전투 중에 덱이 0장으로 보이고
  * 저주 비율도 사라진다.
  */
+/** 덱과 필드를 합친 전체 보유 카드. */
 export function ownedCards(state: GameState): CardInstance[] {
-  return [...state.deck, ...state.hand];
+  return [...state.deck, ...state.field];
+}
+
+/** 필드에 깔린 저주를 종류별로. "다음에 뭐가 겹칠까"를 보는 값이다. */
+export function fieldCurseBreakdown(state: GameState): Record<CurseType, number> {
+  return curseCounts(state.field);
 }
 
 /** 덱에 남아 있는 저주를 종류별로. UI에 "파멸 2 / 부패 5 / 침식 3"으로 뜬다. */
@@ -107,28 +111,26 @@ export function createGame(rng: Rng): GameState {
     hp: MAX_HP,
     maxHp: MAX_HP,
     dead: false,
-    hand: [],
+    field: [],
     push: null,
-    battle: null,
-    pendingBattle: null,
     current: null,
     recent: [],
     log: [],
     records: [],
-    battles: [],
     triggers: { doom: 0, rot: 0, erode: 0 },
     causeOfDeath: null,
-    handSizes: [],
+    fieldSizes: [],
     riskyDraws: { taken: 0, paired: 0 },
+    deckEmptiedAt: null,
   };
 
-  // 시작 손패. 여기서부터 손패는 계속 유지된다.
-  drawToHand(state, HAND_START, rng);
+  // 필드는 비어서 시작한다. 오직 선택지를 통해서만 채워진다.
+  void FIELD_START;
 
   state.current = drawEvent(state, rng);
   remember(state, state.current.id);
   state.log.push(
-    `시작. 덱 ${state.deck.length}장, 손패 ${state.hand.length}장, 체력 ${MAX_HP}. ` +
+    `시작. 덱 ${state.deck.length}장, 필드 ${state.field.length}장, 체력 ${MAX_HP}. ` +
       `탈출구 파편 0/${ESCAPE_TARGET}.`,
   );
 
@@ -137,20 +139,21 @@ export function createGame(rng: Rng): GameState {
 
 /** 한쪽을 고르고 덱에 즉시 반영한 뒤 다음 선택지를 제시한다. */
 export function choose(state: GameState, side: 'red' | 'blue', rng: Rng): void {
-  if (state.escaped || state.dead || state.battle || state.push || !state.current) return;
+  if (state.escaped || state.dead || state.push || !state.current) return;
 
   const event = state.current;
   const option = event[side];
   const changes = applyEffects(state, option.effects, rng);
 
-  // 겹침은 뽑을 때 처리되지만, 손패에 저주를 넣는 경로가 뽑기만은 아니다
+  // 겹침은 뽑을 때 처리되지만, 필드에 저주를 놓는 경로가 뽑기만은 아니다
   // (침식의 변환, 앞으로 추가될 효과들). 매 선택 끝에 한 번 더 확인해
-  // "같은 저주 2장이 손에 남아 있는" 상태가 생기지 않게 못박는다.
+  // "같은 저주 2장이 필드에 남아 있는" 상태가 생기지 않게 못박는다.
   for (const t of resolvePairs(state, rng)) changes.push(...t.lines);
 
-  // 손패의 부패는 겹치지 않아도 매 선택마다 갉아먹는다.
+  // 필드의 부패는 겹치지 않아도 매 선택마다 갉아먹는다.
   changes.push(...applyRotDrain(state));
-  state.handSizes.push(state.hand.length);
+  state.fieldSizes.push(state.field.length);
+  noteDeckEmpty(state);
 
   const summary = summarize(state);
   state.records.push({
@@ -170,61 +173,6 @@ export function choose(state: GameState, side: 'red' | 'blue', rng: Rng): void {
   // 푸시 유어 럭이 열렸으면 플레이어가 멈출 때까지 기다린다.
   if (state.push) return;
 
-  // 전투가 예약됐으면 여기서 연다. 다음 선택지는 전투가 끝난 뒤에 뽑는다.
-  const pending = state.pendingBattle;
-  state.pendingBattle = null;
-  if (pending && state.hp > 0) {
-    const hpBefore = state.hp;
-    startBattle(state, pending.enemyId, pending.onWin, rng);
-    // 낼 카드가 하나도 없어 시작하자마자 끝난 경우도 여기서 정리된다.
-    // finishBattle이 다음 선택지까지 세우므로 어느 쪽이든 여기서 끝난다.
-    if (state.battle && isOver(state.battle)) finishBattle(state, rng, hpBefore);
-    return;
-  }
-
-  advance(state, rng);
-}
-
-/** 전투가 끝난 뒤 정리하고 다음 선택지로 넘어간다. */
-export function finishBattle(state: GameState, rng: Rng, hpBefore: number): void {
-  const battle = state.battle;
-  if (!battle || !isOver(battle)) return;
-
-  collectHand(state);
-
-  const record: BattleRecord = {
-    step: state.step,
-    enemyId: battle.enemy.id,
-    outcome: battle.outcome,
-    cursesDrawn: battle.cursesDrawn,
-    handSize: battle.handSize,
-    taintAtStart: battle.taintAtStart,
-    spent: battle.spent,
-    turns: battle.turn,
-    hpLost: Math.max(0, hpBefore - state.hp),
-  };
-  state.battles.push(record);
-
-  const label =
-    battle.outcome === 'won' ? '승리' : battle.outcome === 'fled' ? '도망' : '패배';
-  state.log.push(
-    `   전투 ${label} — ${battle.enemy.name}, ${battle.turn}턴, 카드 ${battle.spent}장 소모, ` +
-      `체력 -${record.hpLost} (시작 손패 저주 ${battle.cursesDrawn}/${battle.handSize}, ` +
-      `덱 저주 ${Math.round(battle.taintAtStart * 100)}%)`,
-  );
-
-  if (battle.outcome === 'won') {
-    const rewards = applyEffects(state, battle.onWin, rng);
-    for (const r of rewards) state.log.push(`   ${r}`);
-  }
-
-  state.battle = null;
-
-  if (state.hp <= 0) {
-    die(state);
-    return;
-  }
-
   advance(state, rng);
 }
 
@@ -242,10 +190,13 @@ function die(state: GameState): void {
     : last.find((l) => l.includes('부패가 터졌다'))
       ? '부패가 터졌다'
       : last.find((l) => l.includes('갉아먹는다'))
-        ? '손패의 부패에 갉아먹혔다'
+        ? '필드의 부패에 갉아먹혔다'
         : '체력이 바닥났다';
   state.causeOfDeath = cause;
-  state.log.push(`사망 — ${cause}. 파편 ${state.shards}/${state.escapeTarget}에서 멈췄다.`);
+  state.log.push(
+    `사망 — ${cause}. 필드 ${state.field.length}장, 덱 ${state.deck.length}장 남음, ` +
+      `파편 ${state.shards}/${state.escapeTarget}.`,
+  );
 }
 
 /**
@@ -258,7 +209,7 @@ export function pushDraw(state: GameState, rng: Rng): void {
   const push = state.push;
   if (!push || push.stopped) return;
 
-  const edged = onEdge(state.hand).length > 0;
+  const edged = onEdge(state.field).length > 0;
   if (edged) state.riskyDraws.taken += 1;
 
   const card = drawOne(state, rng);
@@ -289,8 +240,17 @@ export function pushStop(state: GameState, rng: Rng): void {
   for (const line of push.log) state.log.push(`   ${line}`);
   state.push = null;
 
-  state.handSizes.push(state.hand.length);
+  state.fieldSizes.push(state.field.length);
+  noteDeckEmpty(state);
   advance(state, rng);
+}
+
+/** 덱이 바닥난 시점을 한 번만 기록한다. 이후 처리는 아직 설계 전이다. */
+function noteDeckEmpty(state: GameState): void {
+  if (state.deck.length === 0 && state.deckEmptiedAt === null) {
+    state.deckEmptiedAt = state.step;
+    state.log.push(`   덱이 바닥났다 (${state.step}수째) — 더 뽑을 수 없다`);
+  }
 }
 
 /**
@@ -306,7 +266,10 @@ function advance(state: GameState, rng: Rng): void {
   if (state.shards >= state.escapeTarget) {
     state.escaped = true;
     state.current = null;
-    state.log.push(`탈출 성공 — 파편 ${state.shards}/${state.escapeTarget}을 모두 모았다.`);
+    state.log.push(
+      `탈출 성공 — 파편 ${state.shards}/${state.escapeTarget}. ` +
+        `필드 ${state.field.length}장, 덱 ${state.deck.length}장 남음.`,
+    );
     return;
   }
 

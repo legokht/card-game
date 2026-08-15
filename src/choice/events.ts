@@ -29,68 +29,22 @@ const revealText = (count: number, payoff: string): string =>
  */
 export const EVENTS: ChoiceEvent[] = [
   {
-    id: 'altar',
-    prompt: '무너진 제단 위에 봉헌물이 쌓여 있다.',
-    red: {
-      text: '두 손 가득 챙긴다 — 보상 2장, 저주 1장, 값싼 2장을 흘린다',
-      tone: 'greed',
-      kind: 'gain',
-      effects: [
-        { type: 'addRandom', kind: 'reward', count: 2 },
-        { type: 'addRandom', kind: 'curse', count: 1 },
-        { type: 'removeExtreme', end: 'lowest', count: 2 },
-      ],
-    },
-    blue: {
-      text: '하나만 집고 물러난다 — 보상 1장, 중립 1장을 두고 간다',
-      tone: 'safe',
-      kind: 'gain',
-      effects: [
-        { type: 'addRandom', kind: 'reward', count: 1 },
-        { type: 'removeKind', kind: 'neutral', count: 1 },
-      ],
-    },
-  },
-  {
     id: 'forge',
     prompt: '대장장이가 화덕에 불을 지핀다.',
     red: {
       text: '중립 2장을 녹여 보상 1장으로 벼린다',
       tone: 'sure',
-      kind: 'cleanse',
+      kind: 'deck',
       effects: [{ type: 'transform', from: 'neutral', to: 'reward', count: 2 }],
     },
     blue: {
       text: '완성품을 산다 — 보상 1장, 저주 1장, 값싼 2장을 값으로',
       tone: 'greed',
-      kind: 'gain',
+      kind: 'deck',
       effects: [
         { type: 'addRandom', kind: 'reward', count: 1 },
         { type: 'addRandom', kind: 'curse', count: 1 },
         { type: 'removeExtreme', end: 'lowest', count: 2 },
-      ],
-    },
-  },
-  {
-    id: 'well',
-    prompt: '정화의 우물. 물이 탁하게 흐려 있다.',
-    red: {
-      text: '저주 2장을 씻어낸다 — 보상 1장도 함께 녹는다',
-      tone: 'safe',
-      kind: 'cleanse',
-      effects: [
-        { type: 'removeKind', kind: 'curse', count: 2 },
-        { type: 'removeKind', kind: 'reward', count: 1 },
-      ],
-    },
-    blue: {
-      text: '바닥에 가라앉은 것을 건진다 — 보상 2장, 저주 1장, 값싼 3장이 잠긴다',
-      tone: 'greed',
-      kind: 'gain',
-      effects: [
-        { type: 'addRandom', kind: 'reward', count: 2 },
-        { type: 'addRandom', kind: 'curse', count: 1 },
-        { type: 'removeExtreme', end: 'lowest', count: 3 },
       ],
     },
   },
@@ -111,7 +65,7 @@ export const EVENTS: ChoiceEvent[] = [
     blue: {
       text: '틈을 지나친다 — 보상 1장을 찾는다, 중립 1장을 잃는다',
       tone: 'later',
-      kind: 'gain',
+      kind: 'deck',
       effects: [
         { type: 'addRandom', kind: 'reward', count: 1 },
         { type: 'removeKind', kind: 'neutral', count: 1 },
@@ -125,7 +79,7 @@ export const EVENTS: ChoiceEvent[] = [
     red: {
       text: '가장 값나가는 것을 판다 — 그 자리에 보상 2장',
       tone: 'gamble',
-      kind: 'gain',
+      kind: 'deck',
       effects: [
         { type: 'removeExtreme', end: 'highest', count: 1 },
         { type: 'addRandom', kind: 'reward', count: 2 },
@@ -134,7 +88,7 @@ export const EVENTS: ChoiceEvent[] = [
     blue: {
       text: '잡동사니를 턴다 — 값싼 2장을 버리고 보상 1장',
       tone: 'sure',
-      kind: 'gain',
+      kind: 'deck',
       effects: [
         { type: 'removeExtreme', end: 'lowest', count: 2 },
         { type: 'addRandom', kind: 'reward', count: 1 },
@@ -148,7 +102,7 @@ export const EVENTS: ChoiceEvent[] = [
     red: {
       text: '저주가 3장 이상이면 보상 2장, 아니면 저주 1장',
       tone: 'gamble',
-      kind: 'gain',
+      kind: 'deck',
       effects: [
         {
           type: 'ifThen',
@@ -161,31 +115,8 @@ export const EVENTS: ChoiceEvent[] = [
     blue: {
       text: '등을 돌린다 — 보상 1장을 두고 온다',
       tone: 'safe',
-      kind: 'cleanse',
+      kind: 'deck',
       effects: [{ type: 'removeKind', kind: 'reward', count: 1 }],
-    },
-  },
-  {
-    id: 'bonfire',
-    prompt: '모닥불이 사그라들고 있다.',
-    red: {
-      text: '짐을 태운다 — 값싼 3장을 버리고 쓸 만한 중립 1장을 건진다',
-      tone: 'safe',
-      kind: 'cleanse',
-      effects: [
-        { type: 'removeExtreme', end: 'lowest', count: 3 },
-        { type: 'addRandom', kind: 'neutral', count: 1 },
-      ],
-    },
-    blue: {
-      text: '불씨를 나눠 받는다 — 보상 1장, 저주 1장, 값싼 1장이 타버린다',
-      tone: 'greed',
-      kind: 'gain',
-      effects: [
-        { type: 'addRandom', kind: 'reward', count: 1 },
-        { type: 'addRandom', kind: 'curse', count: 1 },
-        { type: 'removeExtreme', end: 'lowest', count: 1 },
-      ],
     },
   },
   {
@@ -205,7 +136,7 @@ export const EVENTS: ChoiceEvent[] = [
     blue: {
       text: '입구를 메운다 — 저주 2장을 묻고 잔해에서 중립 1장을 줍는다',
       tone: 'later',
-      kind: 'cleanse',
+      kind: 'deck',
       effects: [
         { type: 'removeKind', kind: 'curse', count: 2 },
         { type: 'addRandom', kind: 'neutral', count: 1 },
@@ -218,7 +149,7 @@ export const EVENTS: ChoiceEvent[] = [
     red: {
       text: '저주 2장을 보상으로 바꾼다 — 중립 1장을 촉매로 태운다',
       tone: 'sure',
-      kind: 'cleanse',
+      kind: 'deck',
       effects: [
         { type: 'transform', from: 'curse', to: 'reward', count: 2 },
         { type: 'removeKind', kind: 'neutral', count: 1 },
@@ -227,7 +158,7 @@ export const EVENTS: ChoiceEvent[] = [
     blue: {
       text: '중립 3장을 저주로 바꾸고 보상 2장을 받는다 — 값싼 1장이 삭는다',
       tone: 'gamble',
-      kind: 'gain',
+      kind: 'deck',
       effects: [
         { type: 'transform', from: 'neutral', to: 'curse', count: 3 },
         { type: 'addRandom', kind: 'reward', count: 2 },
@@ -242,7 +173,7 @@ export const EVENTS: ChoiceEvent[] = [
     red: {
       text: '덱이 14장 이상이면 값싼 4장을 버린다, 아니면 중립 1장을 받는다',
       tone: 'safe',
-      kind: 'cleanse',
+      kind: 'deck',
       effects: [
         {
           type: 'ifThen',
@@ -255,34 +186,11 @@ export const EVENTS: ChoiceEvent[] = [
     blue: {
       text: '더 짊어진다 — 보상 2장, 저주 1장, 값싼 2장을 떨군다',
       tone: 'greed',
-      kind: 'gain',
+      kind: 'deck',
       effects: [
         { type: 'addRandom', kind: 'reward', count: 2 },
         { type: 'addRandom', kind: 'curse', count: 1 },
         { type: 'removeExtreme', end: 'lowest', count: 2 },
-      ],
-    },
-  },
-  {
-    id: 'twins',
-    prompt: '쌍둥이 상인이 각자 다른 거래를 내민다.',
-    red: {
-      text: '보상 3장 — 대신 저주 2장, 짐에서 4장을 덜어낸다',
-      tone: 'greed',
-      kind: 'gain',
-      effects: [
-        { type: 'addRandom', kind: 'reward', count: 3 },
-        { type: 'addRandom', kind: 'curse', count: 2 },
-        { type: 'removeExtreme', end: 'lowest', count: 4 },
-      ],
-    },
-    blue: {
-      text: '보상 1장 — 대신 저주 1장을 가져간다',
-      tone: 'safe',
-      kind: 'gain',
-      effects: [
-        { type: 'addRandom', kind: 'reward', count: 1 },
-        { type: 'removeKind', kind: 'curse', count: 1 },
       ],
     },
   },
@@ -303,7 +211,7 @@ export const EVENTS: ChoiceEvent[] = [
     blue: {
       text: '천장을 받친다 — 저주 1장을 걷어내고 보상 1장',
       tone: 'later',
-      kind: 'gain',
+      kind: 'deck',
       effects: [
         { type: 'removeKind', kind: 'curse', count: 1 },
         { type: 'addRandom', kind: 'reward', count: 1 },
@@ -317,7 +225,7 @@ export const EVENTS: ChoiceEvent[] = [
     red: {
       text: '보상이 4장 이상이면 보상 1장 더, 아니면 값싼 2장을 잃는다',
       tone: 'gamble',
-      kind: 'gain',
+      kind: 'deck',
       effects: [
         {
           type: 'ifThen',
@@ -330,52 +238,10 @@ export const EVENTS: ChoiceEvent[] = [
     blue: {
       text: '판을 접는다 — 중립 2장을 쥐고, 값나가는 1장을 판돈으로',
       tone: 'sure',
-      kind: 'cleanse',
+      kind: 'deck',
       effects: [
         { type: 'addRandom', kind: 'neutral', count: 2 },
         { type: 'removeExtreme', end: 'highest', count: 1 },
-      ],
-    },
-  },
-  {
-    id: 'shrine',
-    prompt: '작은 사당. 봉헌하면 답이 온다.',
-    red: {
-      text: '보상 2장을 바친다 — 저주가 모두 씻긴다',
-      tone: 'safe',
-      kind: 'cleanse',
-      effects: [
-        { type: 'removeKind', kind: 'reward', count: 2 },
-        { type: 'removeKind', kind: 'curse', count: 99 },
-      ],
-    },
-    blue: {
-      text: '사당을 턴다 — 보상 2장, 저주 1장, 값싼 3장이 재가 된다',
-      tone: 'greed',
-      kind: 'gain',
-      effects: [
-        { type: 'addRandom', kind: 'reward', count: 2 },
-        { type: 'addRandom', kind: 'curse', count: 1 },
-        { type: 'removeExtreme', end: 'lowest', count: 3 },
-      ],
-    },
-  },
-  {
-    id: 'mimic',
-    prompt: '상자가 스스로 열린다. 이빨이 보인다.',
-    red: {
-      text: revealText(3, '보상 1장'),
-      tone: 'gamble',
-      kind: 'consume',
-      effects: [reveal(3, LOOT)],
-    },
-    blue: {
-      text: '뚜껑을 닫는다 — 중립 2장, 값싼 1장을 미끼로 남긴다',
-      tone: 'safe',
-      kind: 'cleanse',
-      effects: [
-        { type: 'addRandom', kind: 'neutral', count: 2 },
-        { type: 'removeExtreme', end: 'lowest', count: 1 },
       ],
     },
   },
@@ -396,34 +262,11 @@ export const EVENTS: ChoiceEvent[] = [
     blue: {
       text: '귀를 막는다 — 보상 1장, 저주 1장, 값싼 1장을 흘린다',
       tone: 'later',
-      kind: 'gain',
+      kind: 'deck',
       effects: [
         { type: 'addRandom', kind: 'reward', count: 1 },
         { type: 'addRandom', kind: 'curse', count: 1 },
         { type: 'removeExtreme', end: 'lowest', count: 1 },
-      ],
-    },
-  },
-  {
-    id: 'purge',
-    prompt: '고행자가 채찍을 건넨다.',
-    red: {
-      text: '스스로를 친다 — 값싼 2장을 버리고 보상 1장',
-      tone: 'sure',
-      kind: 'gain',
-      effects: [
-        { type: 'removeExtreme', end: 'lowest', count: 2 },
-        { type: 'addRandom', kind: 'reward', count: 1 },
-      ],
-    },
-    blue: {
-      text: '채찍을 거절한다 — 저주 2장을 떠안고 보상 2장, 값싼 3장을 잃는다',
-      tone: 'greed',
-      kind: 'gain',
-      effects: [
-        { type: 'addRandom', kind: 'curse', count: 2 },
-        { type: 'addRandom', kind: 'reward', count: 2 },
-        { type: 'removeExtreme', end: 'lowest', count: 3 },
       ],
     },
   },
@@ -434,7 +277,7 @@ export const EVENTS: ChoiceEvent[] = [
     red: {
       text: '중립이 2장 이하면 보상 1장, 아니면 중립이 전부 저주가 된다',
       tone: 'gamble',
-      kind: 'gain',
+      kind: 'deck',
       effects: [
         {
           type: 'ifThen',
@@ -447,34 +290,10 @@ export const EVENTS: ChoiceEvent[] = [
     blue: {
       text: '거울을 깬다 — 저주 1장, 값싼 1장을 버린다',
       tone: 'safe',
-      kind: 'cleanse',
+      kind: 'deck',
       effects: [
         { type: 'addRandom', kind: 'curse', count: 1 },
         { type: 'removeExtreme', end: 'lowest', count: 1 },
-      ],
-    },
-  },
-  {
-    id: 'merchant',
-    prompt: '행상인이 저울을 꺼낸다.',
-    red: {
-      text: '저주 3장을 넘긴다 — 보상 1장도 값으로 가져간다',
-      tone: 'safe',
-      kind: 'cleanse',
-      effects: [
-        { type: 'removeKind', kind: 'curse', count: 3 },
-        { type: 'removeKind', kind: 'reward', count: 1 },
-      ],
-    },
-    blue: {
-      text: '외상으로 산다 — 보상 2장, 저주 2장, 값나가는 1장과 값싼 2장을 담보로',
-      tone: 'now',
-      kind: 'gain',
-      effects: [
-        { type: 'addRandom', kind: 'reward', count: 2 },
-        { type: 'addRandom', kind: 'curse', count: 2 },
-        { type: 'removeExtreme', end: 'highest', count: 1 },
-        { type: 'removeExtreme', end: 'lowest', count: 2 },
       ],
     },
   },
@@ -501,27 +320,11 @@ export const EVENTS: ChoiceEvent[] = [
     blue: {
       text: '문을 등진다 — 저주 2장을 지우고 보상 1장을 잃는다',
       tone: 'later',
-      kind: 'cleanse',
+      kind: 'deck',
       effects: [
         { type: 'removeKind', kind: 'curse', count: 2 },
         { type: 'removeKind', kind: 'reward', count: 1 },
       ],
-    },
-  },
-  {
-    id: 'library',
-    prompt: '먼지 쌓인 서가. 펼치면 무언가 빠져나온다.',
-    red: {
-      text: revealText(4, '보상 1장'),
-      tone: 'greed',
-      kind: 'consume',
-      effects: [reveal(4, LOOT)],
-    },
-    blue: {
-      text: '한 권만 태운다 — 저주 2장을 지운다',
-      tone: 'safe',
-      kind: 'cleanse',
-      effects: [{ type: 'removeKind', kind: 'curse', count: 2 }],
     },
   },
   {
@@ -531,7 +334,7 @@ export const EVENTS: ChoiceEvent[] = [
     red: {
       text: '덱이 10장 이하면 그냥 보내준다, 아니면 값싼 3장을 뺏긴다',
       tone: 'gamble',
-      kind: 'gain',
+      kind: 'deck',
       effects: [
         {
           type: 'ifThen',
@@ -544,7 +347,7 @@ export const EVENTS: ChoiceEvent[] = [
     blue: {
       text: '강을 헤엄쳐 건넌다 — 저주 1장, 중립 1장을 잃는다',
       tone: 'sure',
-      kind: 'cleanse',
+      kind: 'deck',
       effects: [
         { type: 'addRandom', kind: 'curse', count: 1 },
         { type: 'removeKind', kind: 'neutral', count: 1 },
@@ -568,34 +371,11 @@ export const EVENTS: ChoiceEvent[] = [
     blue: {
       text: '주변을 뒤진다 — 보상 2장, 저주 1장, 값싼 2장을 흘린다',
       tone: 'later',
-      kind: 'gain',
+      kind: 'deck',
       effects: [
         { type: 'addRandom', kind: 'reward', count: 2 },
         { type: 'addRandom', kind: 'curse', count: 1 },
         { type: 'removeExtreme', end: 'lowest', count: 2 },
-      ],
-    },
-  },
-  {
-    id: 'starve',
-    prompt: '오래 굶었다. 무엇이든 삼켜야 한다.',
-    red: {
-      text: '중립을 전부 삼킨다 — 그만큼 보상으로 바뀐다, 저주 2장',
-      tone: 'gamble',
-      kind: 'cleanse',
-      effects: [
-        { type: 'transform', from: 'neutral', to: 'reward', count: 99 },
-        { type: 'addRandom', kind: 'curse', count: 2 },
-        { type: 'removeExtreme', end: 'lowest', count: 2 },
-      ],
-    },
-    blue: {
-      text: '허리띠를 조인다 — 값싼 2장을 버리고 중립 1장',
-      tone: 'sure',
-      kind: 'cleanse',
-      effects: [
-        { type: 'removeExtreme', end: 'lowest', count: 2 },
-        { type: 'addRandom', kind: 'neutral', count: 1 },
       ],
     },
   },
@@ -607,13 +387,13 @@ export const EVENTS: ChoiceEvent[] = [
     red: {
       text: revealText(3, `체력 +${REWARD_HEAL}`),
       tone: 'gamble',
-      kind: 'consume',
+      kind: 'deck',
       effects: [reveal(3)],
     },
     blue: {
       text: '짐을 버리고 지나간다 — 값싼 3장을 버린다',
       tone: 'safe',
-      kind: 'cleanse',
+      kind: 'deck',
       effects: [{ type: 'removeExtreme', end: 'lowest', count: 3 }],
     },
   },
@@ -624,13 +404,13 @@ export const EVENTS: ChoiceEvent[] = [
     red: {
       text: revealText(4, `체력 +${REWARD_HEAL}`),
       tone: 'now',
-      kind: 'consume',
+      kind: 'deck',
       effects: [reveal(4)],
     },
     blue: {
       text: '길게 돌아간다 — 보상 1장, 저주 1장, 값싼 2장을 흘린다',
       tone: 'later',
-      kind: 'gain',
+      kind: 'deck',
       effects: [
         { type: 'addRandom', kind: 'reward', count: 1 },
         { type: 'addRandom', kind: 'curse', count: 1 },
@@ -645,13 +425,13 @@ export const EVENTS: ChoiceEvent[] = [
     red: {
       text: revealText(2, '보상 1장'),
       tone: 'sure',
-      kind: 'consume',
+      kind: 'deck',
       effects: [reveal(2, LOOT)],
     },
     blue: {
       text: revealText(5, '보상 1장'),
       tone: 'gamble',
-      kind: 'consume',
+      kind: 'deck',
       effects: [reveal(5, LOOT)],
     },
   },
@@ -662,13 +442,13 @@ export const EVENTS: ChoiceEvent[] = [
     red: {
       text: revealText(4, '보상 1장'),
       tone: 'greed',
-      kind: 'consume',
+      kind: 'deck',
       effects: [reveal(4, LOOT)],
     },
     blue: {
       text: '입구를 막는다 — 저주 2장을 지운다',
       tone: 'safe',
-      kind: 'cleanse',
+      kind: 'deck',
       effects: [{ type: 'removeKind', kind: 'curse', count: 2 }],
     },
   },
@@ -679,13 +459,13 @@ export const EVENTS: ChoiceEvent[] = [
     red: {
       text: revealText(1, '보상 1장'),
       tone: 'sure',
-      kind: 'consume',
+      kind: 'deck',
       effects: [reveal(1, LOOT)],
     },
     blue: {
       text: '뱃삯을 낸다 — 보상 2장을 내주고 저주 2장을 떠넘긴다',
       tone: 'safe',
-      kind: 'cleanse',
+      kind: 'deck',
       effects: [
         { type: 'removeKind', kind: 'reward', count: 2 },
         { type: 'removeKind', kind: 'curse', count: 2 },
@@ -699,13 +479,13 @@ export const EVENTS: ChoiceEvent[] = [
     red: {
       text: revealText(6, `체력 +${REWARD_HEAL}`),
       tone: 'gamble',
-      kind: 'consume',
+      kind: 'deck',
       effects: [reveal(6)],
     },
     blue: {
       text: '불에서 물러난다 — 저주 1장을 지우고 값싼 2장을 버린다',
       tone: 'safe',
-      kind: 'cleanse',
+      kind: 'deck',
       effects: [
         { type: 'removeKind', kind: 'curse', count: 1 },
         { type: 'removeExtreme', end: 'lowest', count: 2 },
@@ -719,13 +499,13 @@ export const EVENTS: ChoiceEvent[] = [
     red: {
       text: revealText(3, '보상 1장'),
       tone: 'gamble',
-      kind: 'consume',
+      kind: 'deck',
       effects: [reveal(3, LOOT)],
     },
     blue: {
       text: '점을 거절한다 — 보상 1장, 저주 1장, 값싼 2장을 흘린다',
       tone: 'safe',
-      kind: 'gain',
+      kind: 'deck',
       effects: [
         { type: 'addRandom', kind: 'reward', count: 1 },
         { type: 'addRandom', kind: 'curse', count: 1 },
@@ -740,13 +520,13 @@ export const EVENTS: ChoiceEvent[] = [
     red: {
       text: revealText(5, `체력 +${REWARD_HEAL}`),
       tone: 'greed',
-      kind: 'consume',
+      kind: 'deck',
       effects: [reveal(5)],
     },
     blue: {
       text: revealText(2, `체력 +${REWARD_HEAL}`),
       tone: 'safe',
-      kind: 'consume',
+      kind: 'deck',
       effects: [reveal(2)],
     },
   },
@@ -757,13 +537,13 @@ export const EVENTS: ChoiceEvent[] = [
     red: {
       text: revealText(3, '체력 +2'),
       tone: 'sure',
-      kind: 'consume',
+      kind: 'deck',
       effects: [{ type: 'draw', count: 3, onCurse: BITE, onReward: [{ type: 'heal', amount: 2 }] }],
     },
     blue: {
       text: '뜬눈으로 지킨다 — 저주 1장을 지우고 보상 1장을 잃는다',
       tone: 'safe',
-      kind: 'cleanse',
+      kind: 'deck',
       effects: [
         { type: 'removeKind', kind: 'curse', count: 1 },
         { type: 'removeKind', kind: 'reward', count: 1 },
@@ -788,7 +568,7 @@ export const EVENTS: ChoiceEvent[] = [
     blue: {
       text: '통로를 넓힌다 — 저주 2장을 지우고 값싼 1장을 버린다',
       tone: 'later',
-      kind: 'cleanse',
+      kind: 'deck',
       effects: [
         { type: 'removeKind', kind: 'curse', count: 2 },
         { type: 'removeExtreme', end: 'lowest', count: 1 },
@@ -797,125 +577,26 @@ export const EVENTS: ChoiceEvent[] = [
   },
 
   {
-    id: 'warden',
-    prompt: '파수꾼이 길 한가운데 서 있다. 비켜줄 생각은 없어 보인다.',
-    readsDeck: true,
-    red: {
-      text: '맞선다 — 이기면 저주 2장을 털어낸다',
-      tone: 'gamble',
-      kind: 'consume',
-      effects: [
-        { type: 'battle', enemyId: 'warden', onWin: [{ type: 'removeKind', kind: 'curse', count: 2 }] },
-      ],
-    },
-    blue: {
-      text: '길을 내준다 — 보상 2장을 두고 돌아간다',
-      tone: 'safe',
-      kind: 'cleanse',
-      effects: [{ type: 'removeKind', kind: 'reward', count: 2 }],
-    },
-  },
-  {
-    id: 'gnawer',
-    prompt: '굶주린 것이 짐 냄새를 맡았다.',
-    readsDeck: true,
-    red: {
-      text: '쫓아낸다 — 이기면 보상 2장',
-      tone: 'greed',
-      kind: 'consume',
-      effects: [
-        { type: 'battle', enemyId: 'gnawer', onWin: [{ type: 'addRandom', kind: 'reward', count: 2 }] },
-      ],
-    },
-    blue: {
-      text: '먹이를 던져준다 — 값싼 3장을 내주고 저주 1장',
-      tone: 'safe',
-      kind: 'gain',
-      effects: [
-        { type: 'removeExtreme', end: 'lowest', count: 3 },
-        { type: 'addRandom', kind: 'curse', count: 1 },
-      ],
-    },
-  },
-  {
-    id: 'stray',
-    prompt: '떠도는 것이 비틀거리며 다가온다. 약해 보인다.',
-    readsDeck: true,
-    red: {
-      text: '베어버린다 — 이기면 저주 1장을 털고 보상 1장',
-      tone: 'sure',
-      kind: 'consume',
-      effects: [
-        {
-          type: 'battle',
-          enemyId: 'stray',
-          onWin: [
-            { type: 'removeKind', kind: 'curse', count: 1 },
-            { type: 'addRandom', kind: 'reward', count: 1 },
-          ],
-        },
-      ],
-    },
-    blue: {
-      text: '숨어서 보낸다 — 저주 1장, 값싼 1장을 흘린다',
-      tone: 'safe',
-      kind: 'gain',
-      effects: [
-        { type: 'addRandom', kind: 'curse', count: 1 },
-        { type: 'removeExtreme', end: 'lowest', count: 1 },
-      ],
-    },
-  },
-  {
-    id: 'keeper',
-    prompt: '탈출구 수호자. 뒤로 문이 보인다.',
-    hasShard: true,
-    readsDeck: true,
-    red: {
-      text: `쓰러뜨리고 지나간다 — 이기면 파편 1, 저주 ${SHARD_CURSE_COST}장`,
-      tone: 'now',
-      kind: 'shard',
-      effects: [
-        {
-          type: 'battle',
-          enemyId: 'keeper',
-          onWin: [
-            { type: 'shard', count: 1 },
-            { type: 'addRandom', kind: 'curse', count: SHARD_CURSE_COST },
-          ],
-        },
-      ],
-    },
-    blue: {
-      text: '문을 포기한다 — 저주 2장을 지운다',
-      tone: 'later',
-      kind: 'cleanse',
-      effects: [{ type: 'removeKind', kind: 'curse', count: 2 }],
-    },
-  },
-
-  /* ---------- 뽑기형 ---------- */
-  {
     id: 'draw-well',
     prompt: '샘물에 손을 담근다. 무언가 만져진다.',
-    readsHand: true,
+    readsField: true,
     red: {
-      text: '덱에서 2장을 손에 넣는다',
+      text: '덱에서 2장을 필드에 펼친다',
       tone: 'greed',
       kind: 'draw',
-      effects: [{ type: 'drawHand', count: 2 }],
+      effects: [{ type: 'drawField', count: 2 }],
     },
     blue: {
-      text: '손만 씻는다 — 손패의 저주 1장을 버린다',
+      text: '손만 씻는다 — 필드의 저주 1장을 없앤다',
       tone: 'safe',
       kind: 'purge',
-      effects: [{ type: 'discardCurse', count: 1 }],
+      effects: [{ type: 'purgeCurse', count: 1 }],
     },
   },
   {
     id: 'gamble-draw',
     prompt: '어둠 속으로 손을 뻗는다. 멈추는 건 당신 마음이다.',
-    readsHand: true,
+    readsField: true,
     red: {
       text: '멈출 때까지 한 장씩 뽑는다 — 저주가 겹치면 즉시 중단',
       tone: 'gamble',
@@ -925,7 +606,7 @@ export const EVENTS: ChoiceEvent[] = [
     blue: {
       text: '손을 거둔다 — 보상 1장을 덱에 넣고 저주 1장',
       tone: 'safe',
-      kind: 'gain',
+      kind: 'deck',
       effects: [
         { type: 'addRandom', kind: 'reward', count: 1 },
         { type: 'addRandom', kind: 'curse', count: 1 },
@@ -935,7 +616,7 @@ export const EVENTS: ChoiceEvent[] = [
   {
     id: 'scout',
     prompt: '앞이 조금 보인다. 고를 수 있다.',
-    readsHand: true,
+    readsField: true,
     red: {
       text: '덱 위 3장을 확인하고 1장만 가져온다',
       tone: 'sure',
@@ -946,25 +627,25 @@ export const EVENTS: ChoiceEvent[] = [
       text: '눈을 감고 2장을 집는다 — 뭐가 올지 모른다',
       tone: 'gamble',
       kind: 'draw',
-      effects: [{ type: 'drawHand', count: 2 }],
+      effects: [{ type: 'drawField', count: 2 }],
     },
   },
   {
     id: 'greedy-grab',
     prompt: '한 움큼 쥘 수 있다. 얼마나 쥘지가 문제다.',
-    readsHand: true,
+    readsField: true,
     red: {
       text: '덱에서 3장을 손에 넣는다 — 겹치면 그 자리에서 터진다',
       tone: 'greed',
       kind: 'draw',
-      effects: [{ type: 'drawHand', count: 3 }],
+      effects: [{ type: 'drawField', count: 3 }],
     },
     blue: {
       text: '1장만 집고 체력을 추스른다 — 체력 +2',
       tone: 'safe',
       kind: 'draw',
       effects: [
-        { type: 'drawHand', count: 1 },
+        { type: 'drawField', count: 1 },
         { type: 'heal', amount: 2 },
       ],
     },
@@ -974,37 +655,37 @@ export const EVENTS: ChoiceEvent[] = [
   {
     id: 'shed',
     prompt: '짐을 내려놓을 수 있는 자리다.',
-    readsHand: true,
+    readsField: true,
     red: {
-      text: '손패의 저주 1장을 버린다',
+      text: '필드의 저주 1장을 버린다',
       tone: 'safe',
       kind: 'purge',
-      effects: [{ type: 'discardCurse', count: 1 }],
+      effects: [{ type: 'purgeCurse', count: 1 }],
     },
     blue: {
-      text: '손패를 전부 덱으로 돌리고 3장을 새로 뽑는다',
+      text: '필드에서 무작위로 3장을 쓸어낸다 — 무엇이 걸릴지는 모른다',
       tone: 'gamble',
       kind: 'purge',
-      effects: [{ type: 'mulligan', draw: 3 }],
+      effects: [{ type: 'purgeRandom', count: 3 }],
     },
   },
   {
     id: 'bloodletting',
     prompt: '피를 흘려 저주를 씻어내는 의식이 있다.',
-    readsHand: true,
+    readsField: true,
     red: {
-      text: '손패의 저주 2장을 태운다 — 체력 -3',
+      text: '필드의 저주 2장을 태운다 — 체력 -3',
       tone: 'sure',
       kind: 'purge',
       effects: [
-        { type: 'discardCurse', count: 2 },
+        { type: 'purgeCurse', count: 2 },
         { type: 'damage', amount: 3 },
       ],
     },
     blue: {
       text: '의식을 거절한다 — 덱의 저주 1장을 지우고 보상 1장을 잃는다',
       tone: 'later',
-      kind: 'cleanse',
+      kind: 'deck',
       effects: [
         { type: 'removeKind', kind: 'curse', count: 1 },
         { type: 'removeKind', kind: 'reward', count: 1 },
@@ -1014,22 +695,22 @@ export const EVENTS: ChoiceEvent[] = [
   {
     id: 'exorcism',
     prompt: '퇴마사가 손을 내민다. "가장 무서운 것부터."',
-    readsHand: true,
+    readsField: true,
     red: {
-      text: '손패의 파멸을 전부 버린다 — 체력 -2',
+      text: '필드의 파멸을 전부 버린다 — 체력 -2',
       tone: 'safe',
       kind: 'purge',
       effects: [
-        { type: 'discardCurse', count: 9, curseType: 'doom' },
+        { type: 'purgeCurse', count: 9, curseType: 'doom' },
         { type: 'damage', amount: 2 },
       ],
     },
     blue: {
-      text: '손패의 부패를 전부 버린다 — 저주 1장을 덱에 받는다',
+      text: '필드의 부패를 전부 버린다 — 저주 1장을 덱에 받는다',
       tone: 'sure',
       kind: 'purge',
       effects: [
-        { type: 'discardCurse', count: 9, curseType: 'rot' },
+        { type: 'purgeCurse', count: 9, curseType: 'rot' },
         { type: 'addRandom', kind: 'curse', count: 1 },
       ],
     },
@@ -1037,48 +718,48 @@ export const EVENTS: ChoiceEvent[] = [
   {
     id: 'clean-slate',
     prompt: '전부 내려놓고 다시 시작할 수 있다.',
-    readsHand: true,
+    readsField: true,
     red: {
-      text: '손패를 전부 덱으로 돌리고 5장을 새로 뽑는다',
+      text: '필드를 통째로 쓸어낸다 — 보상까지 전부 사라진다',
       tone: 'gamble',
       kind: 'purge',
-      effects: [{ type: 'mulligan', draw: 5 }],
+      effects: [{ type: 'purgeAll' }],
     },
     blue: {
-      text: '손패의 저주 1장을 버리고 값싼 2장을 덱에서 정리한다',
+      text: '필드의 저주 1장을 버리고 값싼 2장을 덱에서 정리한다',
       tone: 'sure',
       kind: 'purge',
       effects: [
-        { type: 'discardCurse', count: 1 },
+        { type: 'purgeCurse', count: 1 },
         { type: 'removeExtreme', end: 'lowest', count: 2 },
       ],
     },
   },
 
-  /* ---------- 손패 참조형 ---------- */
+  /* ---------- 필드 참조형 ---------- */
   {
     id: 'hoarder',
     prompt: '수집가가 당신의 손을 들여다본다.',
-    readsHand: true,
+    readsField: true,
     red: {
-      text: '손패에 저주가 3장 이상이면 보상 3장, 아니면 저주 1장',
+      text: '필드에 저주가 3장 이상이면 보상 3장, 아니면 저주 1장',
       tone: 'gamble',
-      kind: 'gain',
+      kind: 'field',
       effects: [
         {
-          type: 'ifHand',
-          when: { type: 'handCurseAtLeast', n: 3 },
+          type: 'ifField',
+          when: { type: 'fieldCurseAtLeast', n: 3 },
           then: [{ type: 'addRandom', kind: 'reward', count: 3 }],
           otherwise: [{ type: 'addRandom', kind: 'curse', count: 1 }],
         },
       ],
     },
     blue: {
-      text: '손을 감춘다 — 손패의 저주 1장을 버리고 보상 1장을 잃는다',
+      text: '손을 감춘다 — 필드의 저주 1장을 버리고 보상 1장을 잃는다',
       tone: 'safe',
       kind: 'purge',
       effects: [
-        { type: 'discardCurse', count: 1 },
+        { type: 'purgeCurse', count: 1 },
         { type: 'removeKind', kind: 'reward', count: 1 },
       ],
     },
@@ -1086,41 +767,41 @@ export const EVENTS: ChoiceEvent[] = [
   {
     id: 'rest',
     prompt: '잠시 쉰다. 들고 있는 것이 많을수록 든든하다.',
-    readsHand: true,
+    readsField: true,
     red: {
-      text: '손패 1장당 체력 +1',
+      text: '필드 1장당 체력 +1',
       tone: 'safe',
-      kind: 'gain',
-      effects: [{ type: 'healPerHandCard', amount: 1 }],
+      kind: 'field',
+      effects: [{ type: 'healPerFieldCard', amount: 1 }],
     },
     blue: {
       text: '쉬지 않고 나아간다 — 덱에서 2장을 손에 넣는다',
       tone: 'greed',
       kind: 'draw',
-      effects: [{ type: 'drawHand', count: 2 }],
+      effects: [{ type: 'drawField', count: 2 }],
     },
   },
   {
     id: 'overload',
     prompt: '손이 무겁다. 놓아야 할지도 모른다.',
-    readsHand: true,
+    readsField: true,
     red: {
-      text: '손패가 7장 이상이면 저주 2장을 버린다, 아니면 2장을 더 뽑는다',
+      text: '필드가 7장 이상이면 저주 2장을 버린다, 아니면 2장을 더 뽑는다',
       tone: 'sure',
-      kind: 'purge',
+      kind: 'draw',
       effects: [
         {
-          type: 'ifHand',
-          when: { type: 'handSizeAtLeast', n: 7 },
-          then: [{ type: 'discardCurse', count: 2 }],
-          otherwise: [{ type: 'drawHand', count: 2 }],
+          type: 'ifField',
+          when: { type: 'fieldSizeAtLeast', n: 7 },
+          then: [{ type: 'purgeCurse', count: 2 }],
+          otherwise: [{ type: 'drawField', count: 2 }],
         },
       ],
     },
     blue: {
       text: `버티고 본다 — 보상 2장을 덱에 넣고 체력 -${ROT_BURST}`,
       tone: 'greed',
-      kind: 'gain',
+      kind: 'deck',
       effects: [
         { type: 'addRandom', kind: 'reward', count: 2 },
         { type: 'damage', amount: ROT_BURST },
@@ -1130,15 +811,15 @@ export const EVENTS: ChoiceEvent[] = [
   {
     id: 'empty-hands',
     prompt: '빈손일수록 가볍게 지나갈 수 있는 길이다.',
-    readsHand: true,
+    readsField: true,
     red: {
-      text: '손패가 3장 이하면 파편 1, 아니면 저주 1장',
+      text: '필드가 3장 이하면 파편 1, 아니면 저주 1장',
       tone: 'now',
       kind: 'shard',
       effects: [
         {
-          type: 'ifHand',
-          when: { type: 'handSizeAtMost', n: 3 },
+          type: 'ifField',
+          when: { type: 'fieldSizeAtMost', n: 3 },
           then: [
             { type: 'shard', count: 1 },
             { type: 'addRandom', kind: 'curse', count: 1 },
@@ -1148,13 +829,302 @@ export const EVENTS: ChoiceEvent[] = [
       ],
     },
     blue: {
-      text: '짐을 지고 돌아간다 — 손패의 저주 1장을 버리고 체력 -1',
+      text: '짐을 지고 돌아간다 — 필드의 저주 1장을 버리고 체력 -1',
       tone: 'later',
       kind: 'purge',
       effects: [
-        { type: 'discardCurse', count: 1 },
+        { type: 'purgeCurse', count: 1 },
         { type: 'damage', amount: 1 },
       ],
+    },
+  },
+
+  /* ---------- 필드를 채운다 ---------- */
+  {
+    id: 'first-step',
+    prompt: '아직 아무것도 펼치지 않았다. 뭐라도 꺼내야 한다.',
+    readsField: true,
+    red: {
+      text: '덱에서 3장을 한 번에 펼친다',
+      tone: 'greed',
+      kind: 'draw',
+      effects: [{ type: 'drawField', count: 3 }],
+    },
+    blue: {
+      text: '1장만 조심스럽게 펼친다 — 체력 +2',
+      tone: 'safe',
+      kind: 'draw',
+      effects: [
+        { type: 'drawField', count: 1 },
+        { type: 'heal', amount: 2 },
+      ],
+    },
+  },
+  {
+    id: 'lantern',
+    prompt: '등불을 들면 앞이 보인다. 대신 뒤가 어두워진다.',
+    readsField: true,
+    red: {
+      text: '덱 위 4장을 보고 2장을 골라 펼친다',
+      tone: 'sure',
+      kind: 'draw',
+      effects: [{ type: 'peek', count: 4, keep: 2 }],
+    },
+    blue: {
+      text: '등불을 끄고 2장을 눈감고 펼친다 — 체력 +3',
+      tone: 'gamble',
+      kind: 'draw',
+      effects: [
+        { type: 'drawField', count: 2 },
+        { type: 'heal', amount: 3 },
+      ],
+    },
+  },
+  {
+    id: 'floodgate',
+    prompt: '한꺼번에 쏟아낼 수 있다.',
+    readsField: true,
+    red: {
+      text: '덱에서 4장을 펼친다 — 겹치면 그 자리에서 터진다',
+      tone: 'greed',
+      kind: 'draw',
+      effects: [{ type: 'drawField', count: 4 }],
+    },
+    blue: {
+      text: '문을 잠근다 — 덱의 저주 2장을 없앤다',
+      tone: 'later',
+      kind: 'deck',
+      effects: [{ type: 'removeKind', kind: 'curse', count: 2 }],
+    },
+  },
+
+  /* ---------- 필드를 비운다 ---------- */
+  {
+    id: 'sweep',
+    prompt: '펼쳐진 것들을 쓸어낼 수 있다.',
+    readsField: true,
+    red: {
+      text: '필드의 저주 2장을 없앤다',
+      tone: 'safe',
+      kind: 'purge',
+      effects: [{ type: 'purgeCurse', count: 2 }],
+    },
+    blue: {
+      text: '필드에서 무작위 2장을 없앤다 — 보상이 걸릴 수도 있다',
+      tone: 'gamble',
+      kind: 'purge',
+      effects: [{ type: 'purgeRandom', count: 2 }],
+    },
+  },
+  {
+    id: 'salt-circle',
+    prompt: '소금을 두르면 무언가는 물러난다.',
+    readsField: true,
+    red: {
+      text: '필드의 파멸을 전부 없앤다 — 체력 -3',
+      tone: 'safe',
+      kind: 'purge',
+      effects: [
+        { type: 'purgeCurse', count: 9, curseType: 'doom' },
+        { type: 'damage', amount: 3 },
+      ],
+    },
+    blue: {
+      text: '필드의 부패를 전부 없앤다 — 덱에 저주 1장',
+      tone: 'sure',
+      kind: 'purge',
+      effects: [
+        { type: 'purgeCurse', count: 9, curseType: 'rot' },
+        { type: 'addRandom', kind: 'curse', count: 1 },
+      ],
+    },
+  },
+  {
+    id: 'burn-it',
+    prompt: '전부 태워버릴 수 있다. 좋은 것까지.',
+    readsField: true,
+    red: {
+      text: '필드를 통째로 태운다 — 보상까지 전부 사라진다',
+      tone: 'gamble',
+      kind: 'purge',
+      effects: [{ type: 'purgeAll' }],
+    },
+    blue: {
+      text: '저주 1장만 골라 태운다 — 체력 -2',
+      tone: 'sure',
+      kind: 'purge',
+      effects: [
+        { type: 'purgeCurse', count: 1 },
+        { type: 'damage', amount: 2 },
+      ],
+    },
+  },
+  {
+    id: 'tithe',
+    prompt: '값을 치르면 정리해 준다.',
+    readsField: true,
+    red: {
+      text: '필드의 저주 3장을 없앤다 — 덱의 보상 2장을 잃는다',
+      tone: 'sure',
+      kind: 'purge',
+      effects: [
+        { type: 'purgeCurse', count: 3 },
+        { type: 'removeKind', kind: 'reward', count: 2 },
+      ],
+    },
+    blue: {
+      text: '값을 아낀다 — 덱에서 2장을 펼친다',
+      tone: 'greed',
+      kind: 'draw',
+      effects: [{ type: 'drawField', count: 2 }],
+    },
+  },
+
+  /* ---------- 필드를 읽는다 ---------- */
+  {
+    id: 'weigher',
+    prompt: '저울잡이가 펼쳐진 것을 센다.',
+    readsField: true,
+    red: {
+      text: '필드에 저주가 3장 이상이면 파편 1, 아니면 저주 2장',
+      tone: 'gamble',
+      kind: 'field',
+      effects: [
+        {
+          type: 'ifField',
+          when: { type: 'fieldCurseAtLeast', n: 3 },
+          then: [
+            { type: 'shard', count: 1 },
+            { type: 'addRandom', kind: 'curse', count: 1 },
+          ],
+          otherwise: [{ type: 'addRandom', kind: 'curse', count: 2 }],
+        },
+      ],
+    },
+    blue: {
+      text: '저울을 엎는다 — 필드의 저주 1장을 없애고 체력 -2',
+      tone: 'safe',
+      kind: 'purge',
+      effects: [
+        { type: 'purgeCurse', count: 1 },
+        { type: 'damage', amount: 2 },
+      ],
+    },
+  },
+  {
+    id: 'tally',
+    prompt: '펼친 것이 많을수록 든든하다. 더러운 것만 아니라면.',
+    readsField: true,
+    red: {
+      text: '필드 1장당 체력 +1',
+      tone: 'safe',
+      kind: 'field',
+      effects: [{ type: 'healPerFieldCard', amount: 1 }],
+    },
+    blue: {
+      text: '필드가 5장 이하면 덱에서 3장을 펼친다, 아니면 저주 1장',
+      tone: 'gamble',
+      kind: 'field',
+      effects: [
+        {
+          type: 'ifField',
+          when: { type: 'fieldSizeAtMost', n: 5 },
+          then: [{ type: 'drawField', count: 3 }],
+          otherwise: [{ type: 'addRandom', kind: 'curse', count: 1 }],
+        },
+      ],
+    },
+  },
+  {
+    id: 'clutter',
+    prompt: '발 디딜 틈이 없다.',
+    readsField: true,
+    red: {
+      text: '필드가 8장 이상이면 무작위 4장을 쓸어낸다, 아니면 2장을 펼친다',
+      tone: 'sure',
+      kind: 'field',
+      effects: [
+        {
+          type: 'ifField',
+          when: { type: 'fieldSizeAtLeast', n: 8 },
+          then: [{ type: 'purgeRandom', count: 4 }],
+          otherwise: [{ type: 'drawField', count: 2 }],
+        },
+      ],
+    },
+    blue: {
+      text: '그냥 밟고 지나간다 — 체력 -3, 덱의 저주 1장을 없앤다',
+      tone: 'later',
+      kind: 'deck',
+      effects: [
+        { type: 'damage', amount: 3 },
+        { type: 'removeKind', kind: 'curse', count: 1 },
+      ],
+    },
+  },
+
+  {
+    id: 'sifter',
+    prompt: '체로 거를 수 있다. 무엇이 남을지는 체가 정한다.',
+    readsField: true,
+    red: {
+      text: '필드의 저주 1장을 없애고 덱에서 1장을 펼친다',
+      tone: 'sure',
+      kind: 'purge',
+      effects: [
+        { type: 'purgeCurse', count: 1 },
+        { type: 'drawField', count: 1 },
+      ],
+    },
+    blue: {
+      text: '체를 통째로 턴다 — 필드에서 무작위 3장을 없앤다',
+      tone: 'gamble',
+      kind: 'purge',
+      effects: [{ type: 'purgeRandom', count: 3 }],
+    },
+  },
+  {
+    id: 'quiet-room',
+    prompt: '아무것도 하지 않아도 되는 방이다.',
+    readsField: true,
+    red: {
+      text: '숨을 고른다 — 필드의 저주 2장을 없앤다',
+      tone: 'safe',
+      kind: 'purge',
+      effects: [{ type: 'purgeCurse', count: 2 }],
+    },
+    blue: {
+      text: '가만있지 못한다 — 덱에서 2장을 펼치고 체력 +2',
+      tone: 'greed',
+      kind: 'draw',
+      effects: [
+        { type: 'drawField', count: 2 },
+        { type: 'heal', amount: 2 },
+      ],
+    },
+  },
+  {
+    id: 'reckoning',
+    prompt: '펼쳐놓은 것들이 당신을 마주 본다.',
+    readsField: true,
+    red: {
+      text: '필드에 저주가 4장 이상이면 전부 없앤다, 아니면 저주 1장을 받는다',
+      tone: 'gamble',
+      kind: 'field',
+      effects: [
+        {
+          type: 'ifField',
+          when: { type: 'fieldCurseAtLeast', n: 4 },
+          then: [{ type: 'purgeCurse', count: 9 }],
+          otherwise: [{ type: 'addRandom', kind: 'curse', count: 1 }],
+        },
+      ],
+    },
+    blue: {
+      text: '눈을 피한다 — 덱에서 2장을 펼친다',
+      tone: 'safe',
+      kind: 'draw',
+      effects: [{ type: 'drawField', count: 2 }],
     },
   },
 ];

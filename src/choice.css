@@ -52,7 +52,7 @@ body {
   grid-template-areas:
     'top top'
     'stage deck'
-    'hand deck'
+    'field deck'
     'history deck';
   gap: 16px;
   max-width: 900px;
@@ -303,10 +303,10 @@ b {
   color: var(--ember);
 }
 
-/* ---------- 상시 손패 ---------- */
+/* ---------- 필드 ---------- */
 
-.hand {
-  grid-area: hand;
+.field {
+  grid-area: field;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -316,7 +316,13 @@ b {
   border-radius: 3px;
 }
 
-.hand__head {
+.field__tally {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.field__head {
   display: flex;
   align-items: baseline;
   gap: 12px;
@@ -325,14 +331,14 @@ b {
   color: var(--dim);
 }
 
-.hand__label b {
+.field__label b {
   font-family: var(--mono);
   font-size: 16px;
   color: var(--bone);
   font-variant-numeric: tabular-nums;
 }
 
-.hand__rot {
+.field__rot {
   color: #c58f6a;
 }
 
@@ -368,103 +374,92 @@ b {
   border-color: #8e5aa4;
 }
 
-.hcards {
+.fcards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
-  gap: 7px;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
 }
 
-.hcard {
+.fcard {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 5px;
-  min-height: 74px;
-  padding: 8px 5px;
+  min-height: 56px;
+  padding: 6px 4px;
   font-family: inherit;
   color: var(--bone);
   border: 1px solid;
   border-radius: 3px;
   cursor: default;
-  transition:
-    transform 0.1s ease,
-    box-shadow 0.1s ease;
+  transition: box-shadow 0.15s ease;
 }
 
-.hcard--reward {
+.fcard--reward {
   background: linear-gradient(170deg, #6b5a2c, #4a3d1d);
   border-color: var(--reward);
 }
 
-.hcard--neutral {
+.fcard--neutral {
   background: linear-gradient(170deg, #464036, #332f28);
   border-color: var(--neutral);
 }
 
-.hcard--shard {
+.fcard--shard {
   background: linear-gradient(170deg, #2b4a44, #1e3833);
   border-color: var(--shard);
 }
 
 /* 저주는 종류마다 색이 다르다. 무엇이 겹치려는지 알아야 하기 때문이다. */
-.hcard--curse {
+.fcard--curse {
   border-style: dashed;
   cursor: not-allowed;
 }
 
-.hcard--doom {
+.fcard--doom {
   background: repeating-linear-gradient(135deg, #351317 0 7px, #2c1015 7px 14px);
   border-color: #b34a4a;
   color: #f0b0b0;
 }
 
-.hcard--rot {
+.fcard--rot {
   background: repeating-linear-gradient(135deg, #33240f 0 7px, #2b1e0d 7px 14px);
   border-color: #a8763c;
   color: #dcb388;
 }
 
-.hcard--erode {
+.fcard--erode {
   background: repeating-linear-gradient(135deg, #2a1b31 0 7px, #241729 7px 14px);
   border-color: #8e5aa4;
   color: #c9a8d8;
 }
 
 /*
- * 같은 종류가 손에 딱 1장 있는 카드. 다음 한 장이 이걸 완성시킨다.
+ * 같은 종류가 필드에 딱 1장 있는 카드. 다음 한 장이 이걸 완성시킨다.
  * 이 상태가 눈에 띄는 것이 이 화면에서 가장 중요한 일이다.
  */
-.hcard.is-edge {
-  transform: translateY(-3px);
+.fcard.is-edge {
   box-shadow:
     0 0 0 2px currentColor,
-    0 4px 14px rgba(0, 0, 0, 0.5);
+    0 0 16px rgba(0, 0, 0, 0.55);
 }
 
-.hcard:not(.is-locked).hcard--reward,
-.hcard:not(.is-locked).hcard--neutral,
-.hcard:not(.is-locked).hcard--shard {
-  cursor: pointer;
-}
-
-.hcard:not(.is-locked):hover {
-  transform: translateY(-3px);
-}
-
-.hcard__name {
+.fcard__name {
   font-family: var(--serif);
-  font-size: 12.5px;
+  font-size: 11.5px;
   text-align: center;
 }
 
-.hcard__note {
+.fcard__note {
   font-size: 10px;
   letter-spacing: 0.06em;
   opacity: 0.85;
 }
 
-.hcard__stats {
+.fcard__stats {
   display: flex;
   gap: 6px;
   font-family: var(--mono);
@@ -472,22 +467,22 @@ b {
   font-variant-numeric: tabular-nums;
 }
 
-.hcard__stats .atk {
+.fcard__stats .atk {
   color: #e8b27a;
 }
 
-.hcard__stats .blk {
+.fcard__stats .blk {
   color: #9fc0d4;
 }
 
-.hcards__empty {
+.fcards__empty {
   margin: 0;
   grid-column: 1 / -1;
   font-size: 12px;
   color: var(--faint);
 }
 
-/* 덱에 남은 저주를 종류별로. 아래 목록은 손패까지 포함하므로 구분해서 적는다. */
+/* 덱에 남은 저주를 종류별로. 아래 목록은 필드까지 포함하므로 구분해서 적는다. */
 .cursekinds__label {
   margin: -4px 0 -2px;
   font-size: 10px;
@@ -555,295 +550,6 @@ b {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
-}
-
-/* ---------- 전투 ---------- */
-
-.battle {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.battle__enemy {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding: 14px 16px;
-  background: #221310;
-  border: 1px solid var(--red);
-  border-radius: 3px;
-}
-
-.battle__row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.battle__name {
-  font-family: var(--serif);
-  font-size: 19px;
-  color: #eab5ad;
-}
-
-.battle__hp {
-  font-family: var(--mono);
-  font-size: 20px;
-  color: var(--bone);
-  font-variant-numeric: tabular-nums;
-}
-
-.enemybar {
-  height: 6px;
-  background: rgba(0, 0, 0, 0.4);
-  border-radius: 2px;
-  overflow: hidden;
-}
-
-.enemybar i {
-  display: block;
-  height: 100%;
-  background: var(--red-hi);
-  transition: width 0.25s ease;
-}
-
-.battle__note {
-  font-size: 11px;
-  color: var(--dim);
-}
-
-.handline {
-  font-size: 12px;
-  color: var(--dim);
-}
-
-.handline b {
-  font-family: var(--mono);
-  color: var(--bone);
-  font-variant-numeric: tabular-nums;
-}
-
-.handline b.is-none {
-  color: #e0796c;
-}
-
-.handline__curse {
-  margin-left: 8px;
-  color: #b184c2;
-}
-
-.bhand {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
-  gap: 8px;
-}
-
-.bcard {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 88px;
-  padding: 10px 6px;
-  font-family: inherit;
-  color: var(--bone);
-  border: 1px solid;
-  border-radius: 3px;
-  cursor: pointer;
-  transition:
-    transform 0.1s ease,
-    filter 0.1s ease;
-}
-
-.bcard:hover:not(.is-locked) {
-  transform: translateY(-3px);
-  filter: brightness(1.12);
-}
-
-.bcard:focus-visible {
-  outline: 2px solid var(--ember);
-  outline-offset: 2px;
-}
-
-.bcard--reward {
-  background: linear-gradient(170deg, #6b5a2c, #4a3d1d);
-  border-color: var(--reward);
-}
-
-.bcard--neutral {
-  background: linear-gradient(170deg, #464036, #332f28);
-  border-color: var(--neutral);
-}
-
-.bcard--shard {
-  background: linear-gradient(170deg, #2b4a44, #1e3833);
-  border-color: var(--shard);
-}
-
-/* 저주는 자리를 차지하되 쓸 수 없다. 그게 한눈에 보여야 한다. */
-.bcard--curse {
-  background: repeating-linear-gradient(
-    135deg,
-    #2a1b31 0 7px,
-    #241729 7px 14px
-  );
-  border-color: var(--curse);
-  border-style: dashed;
-  color: #b79ac4;
-  cursor: not-allowed;
-}
-
-.bcard.is-locked {
-  opacity: 0.72;
-}
-
-.bcard__name {
-  font-family: var(--serif);
-  font-size: 13px;
-  text-align: center;
-}
-
-.bcard__stats {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-family: var(--mono);
-  font-size: 10.5px;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
-
-.bcard__stats .atk {
-  color: #e8b27a;
-}
-
-.bcard__stats .blk {
-  color: #9fc0d4;
-}
-
-.bcard__blocked {
-  font-size: 10.5px;
-  letter-spacing: 0.08em;
-  color: #a583b5;
-}
-
-.bhand__empty {
-  margin: 0;
-  grid-column: 1 / -1;
-  font-size: 12px;
-  color: var(--faint);
-}
-
-.bcontrols {
-  display: flex;
-}
-
-.btn {
-  padding: 9px 18px;
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  color: #1a1409;
-  background: var(--ember);
-  border: 1px solid #e09a4c;
-  border-radius: 2px;
-  cursor: pointer;
-}
-
-.btn:hover {
-  background: #dd9042;
-}
-
-.btn:focus-visible {
-  outline: 2px solid var(--bone);
-  outline-offset: 2px;
-}
-
-.btn--flee {
-  font-weight: 500;
-  color: var(--dim);
-  background: transparent;
-  border-color: var(--edge);
-}
-
-.btn--flee:hover {
-  color: var(--bone);
-  background: var(--table-hi);
-  border-color: var(--dim);
-}
-
-.bresult {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-  padding: 14px 16px;
-  border: 1px solid;
-  border-radius: 3px;
-}
-
-.bresult__word {
-  font-family: var(--serif);
-  font-size: 22px;
-  letter-spacing: 0.14em;
-  text-indent: 0.14em;
-}
-
-.bresult__sub {
-  font-size: 12px;
-  color: var(--dim);
-}
-
-.bresult .btn {
-  margin-left: auto;
-}
-
-.bresult--won {
-  background: #1d2416;
-  border-color: var(--moss, #6d8b47);
-}
-
-.bresult--won .bresult__word {
-  color: #a9c47c;
-}
-
-.bresult--fled {
-  background: #241f14;
-  border-color: var(--ember);
-}
-
-.bresult--fled .bresult__word {
-  color: #d9a05e;
-}
-
-.bresult--lost {
-  background: #251411;
-  border-color: var(--red);
-}
-
-.bresult--lost .bresult__word {
-  color: #e0796c;
-}
-
-.blog {
-  max-height: 150px;
-  overflow-y: auto;
-  padding: 9px 13px;
-  background: var(--table);
-  border: 1px solid var(--edge-soft);
-  border-radius: 3px;
-  font-family: var(--mono);
-  font-size: 11.5px;
-  line-height: 1.7;
-  color: var(--dim);
-  font-variant-numeric: tabular-nums;
-}
-
-.blog p {
-  margin: 0;
 }
 
 /* ---------- 방금 일어난 변화 ---------- */
@@ -1199,7 +905,7 @@ b {
     grid-template-areas:
       'top'
       'stage'
-      'hand'
+      'field'
       'deck'
       'history';
   }

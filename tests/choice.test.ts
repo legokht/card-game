@@ -1,14 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { Rng } from '../src/engine/rng';
 import { choose, createGame, deckByKind, drawEvent, summarize } from '../src/choice/engine';
-import { canPlay } from '../src/choice/battle';
 import { applyEffects, countKind, resetUidCounter } from '../src/choice/effects';
 import { EVENTS } from '../src/choice/events';
 import {
   CARD_POOL,
   CURSE_DAMAGE,
   ESCAPE_TARGET,
-  HAND_START,
+  FIELD_START,
   MAX_HP,
   STARTING_DECK,
 } from '../src/choice/balance';
@@ -29,42 +28,59 @@ describe('선택지 데이터', () => {
 
   it('네 유형이 각각 최소 4개씩 있다', () => {
     const counts: Record<OptionKind, number> = {
-      consume: 0,
-      cleanse: 0,
-      shard: 0,
-      gain: 0,
       draw: 0,
       purge: 0,
+      deck: 0,
+      field: 0,
+      shard: 0,
+      gain: 0,
     };
     for (const e of EVENTS) {
       counts[e.red.kind] += 1;
       counts[e.blue.kind] += 1;
     }
-    for (const kind of Object.keys(counts) as OptionKind[]) {
-      // 손패 조작(뽑기·손패 정리)은 최소 3개, 기존 네 유형은 최소 4개.
-      const floor = kind === 'draw' || kind === 'purge' ? 3 : 4;
-      expect(counts[kind], kind).toBeGreaterThanOrEqual(floor);
+    // 스펙이 요구하는 네 유형.
+    for (const kind of ['draw', 'purge', 'deck', 'field'] as OptionKind[]) {
+      expect(counts[kind], kind).toBeGreaterThanOrEqual(4);
     }
   });
 
-  it('획득형이 절반을 넘지 않는다', () => {
-    const gain = EVENTS.filter((e) => e.red.kind === 'gain').length +
-      EVENTS.filter((e) => e.blue.kind === 'gain').length;
-    expect(gain / (EVENTS.length * 2)).toBeLessThan(0.5);
+  it('덱 조작형이 절반을 넘지 않는다', () => {
+    // 필드가 주인공인데 덱만 만지는 선택지가 과반이면 필드가 거의 안 움직인다.
+    const deckOnly =
+      EVENTS.filter((e) => e.red.kind === 'deck').length +
+      EVENTS.filter((e) => e.blue.kind === 'deck').length;
+    expect(deckOnly / (EVENTS.length * 2)).toBeLessThan(0.5);
   });
 
-  it('덱소비형은 실제로 덱에서 뽑는다 (공개 또는 전투)', () => {
-    // 전투도 덱에서 손패를 가져가고 낸 카드를 소모하므로 덱소비형이다.
+  it('뽑기형은 실제로 덱에서 필드로 가져온다', () => {
     const draws = (fx: Effect[]): boolean =>
       fx.some(
         (f) =>
-          f.type === 'draw' ||
-          f.type === 'battle' ||
-          ((f.type === 'ifThen' || f.type === 'ifHand') && (draws(f.then) || draws(f.otherwise))),
+          f.type === 'drawField' ||
+          f.type === 'pushLuck' ||
+          f.type === 'peek' ||
+          ((f.type === 'ifThen' || f.type === 'ifField') && (draws(f.then) || draws(f.otherwise))),
       );
     for (const e of EVENTS) {
       for (const side of ['red', 'blue'] as const) {
-        if (e[side].kind === 'consume') expect(draws(e[side].effects), `${e.id}.${side}`).toBe(true);
+        if (e[side].kind === 'draw') expect(draws(e[side].effects), `${e.id}.${side}`).toBe(true);
+      }
+    }
+  });
+
+  it('제거형은 실제로 필드를 비운다', () => {
+    const purges = (fx: Effect[]): boolean =>
+      fx.some(
+        (f) =>
+          f.type === 'purgeCurse' ||
+          f.type === 'purgeRandom' ||
+          f.type === 'purgeAll' ||
+          ((f.type === 'ifThen' || f.type === 'ifField') && (purges(f.then) || purges(f.otherwise))),
+      );
+    for (const e of EVENTS) {
+      for (const side of ['red', 'blue'] as const) {
+        if (e[side].kind === 'purge') expect(purges(e[side].effects), `${e.id}.${side}`).toBe(true);
       }
     }
   });
@@ -75,8 +91,7 @@ describe('선택지 데이터', () => {
       fx.some(
         (f) =>
           (f.type === 'addRandom' && f.kind === 'curse') ||
-          (f.type === 'battle' && addsCurse(f.onWin)) ||
-          ((f.type === 'ifThen' || f.type === 'ifHand') &&
+          ((f.type === 'ifThen' || f.type === 'ifField') &&
             (addsCurse(f.then) || addsCurse(f.otherwise))),
       );
     for (const e of EVENTS) {
@@ -91,8 +106,7 @@ describe('선택지 데이터', () => {
       fx.some(
         (f) =>
           f.type === 'shard' ||
-          (f.type === 'battle' && shards(f.onWin)) ||
-          ((f.type === 'ifThen' || f.type === 'ifHand') && (shards(f.then) || shards(f.otherwise))),
+          ((f.type === 'ifThen' || f.type === 'ifField') && (shards(f.then) || shards(f.otherwise))),
       );
     for (const e of EVENTS) {
       for (const side of ['red', 'blue'] as const) {
@@ -127,16 +141,16 @@ describe('선택지 데이터', () => {
           f.type === 'removeKind' ||
           f.type === 'removeExtreme' ||
           f.type === 'transform' ||
-          f.type === 'discardCurse' ||
-          ((f.type === 'ifThen' || f.type === 'ifHand') && (shrinks(f.then) || shrinks(f.otherwise))),
+          f.type === 'purgeCurse' ||
+          ((f.type === 'ifThen' || f.type === 'ifField') && (shrinks(f.then) || shrinks(f.otherwise))),
       );
     const count = EVENTS.filter((e) => shrinks(e.red.effects) || shrinks(e.blue.effects)).length;
     expect(count / EVENTS.length).toBeGreaterThanOrEqual(0.5);
   });
 
-  it('파편형과 덱 참조형이 모두 존재한다', () => {
+  it('파편형과 필드 참조형이 모두 존재한다', () => {
     expect(EVENTS.filter((e) => e.hasShard).length).toBeGreaterThanOrEqual(4);
-    expect(EVENTS.filter((e) => e.readsDeck).length).toBeGreaterThanOrEqual(4);
+    expect(EVENTS.filter((e) => e.readsField).length).toBeGreaterThanOrEqual(4);
   });
 
   it('참조하는 카드 id가 전부 풀에 있다', () => {
@@ -144,7 +158,7 @@ describe('선택지 데이터', () => {
     const walk = (fx: Effect[]): void => {
       for (const f of fx) {
         if (f.type === 'addSpecific') expect(ids.has(f.cardId)).toBe(true);
-        if (f.type === 'ifThen' || f.type === 'ifHand') {
+        if (f.type === 'ifThen' || f.type === 'ifField') {
           walk(f.then);
           walk(f.otherwise);
         }
@@ -170,9 +184,9 @@ describe('효과 적용', () => {
 
   it('제거는 값싼 것부터 집는다', () => {
     const state = createGame(new Rng('rm'));
-    apply(state, [{ type: 'removeKind', kind: 'neutral', count: 2 }]);
+    // 시작 덱의 가장 싼 중립은 부싯돌(1)과 주머니칼(1)로 각 2장씩이다.
+    apply(state, [{ type: 'removeKind', kind: 'neutral', count: 4 }]);
 
-    // 시작 덱의 중립은 낡은단검2, 낡은단검2, 나무방패2, 나무방패2, 부싯돌1, 외투2, 주머니칼1
     const names = state.deck.filter((c) => c.kind === 'neutral').map((c) => c.name);
     expect(names).not.toContain('부싯돌');
     expect(names).not.toContain('주머니칼');
@@ -181,10 +195,11 @@ describe('효과 적용', () => {
   it('가장 값나가는 카드를 지운다', () => {
     const state = createGame(new Rng('high'));
     const top = Math.max(...state.deck.map((c) => c.value));
-    apply(state, [{ type: 'removeExtreme', end: 'highest', count: 1 }]);
+    const topCount = state.deck.filter((c) => c.value === top).length;
 
-    expect(Math.max(...state.deck.map((c) => c.value))).toBeLessThanOrEqual(top);
-    expect(state.deck.some((c) => c.name === '은빛 검')).toBe(false);
+    apply(state, [{ type: 'removeExtreme', end: 'highest', count: topCount }]);
+
+    expect(Math.max(...state.deck.map((c) => c.value))).toBeLessThan(top);
   });
 
   it('지울 카드가 모자라면 있는 만큼만 지우고 넘어간다', () => {
@@ -230,7 +245,8 @@ describe('효과 적용', () => {
 
   it('덱에서 뽑으면 저주마다 체력이 깎이고 카드는 덱에 남는다', () => {
     const state = createGame(new Rng('bite'));
-    state.deck = state.deck.filter((c) => c.kind !== 'curse');
+    // 덱을 전부 저주로 갈아 3장을 공개하면 반드시 3장 다 저주다.
+    state.deck = [];
     apply(state, [{ type: 'addRandom', kind: 'curse', count: 20 }]);
     const size = state.deck.length;
     const hp = state.hp;
@@ -241,6 +257,7 @@ describe('효과 적용', () => {
 
     // 덱이 전부 저주라 3장 모두 물어뜯는다.
     expect(state.hp).toBe(hp - CURSE_DAMAGE * 3);
+    // 들여다보기만 할 뿐 덱에서 빠져나가지 않는다.
     expect(state.deck).toHaveLength(size);
   });
 
@@ -286,9 +303,9 @@ describe('선택 루프', () => {
     const state = createGame(new Rng('start'));
     expect(state.current).not.toBeNull();
     expect(state.step).toBe(1);
-    // 시작 손패로 5장이 덱에서 빠져나간다.
-    expect(state.hand).toHaveLength(HAND_START);
-    expect(state.deck).toHaveLength(STARTING_DECK.length - HAND_START);
+    // 필드는 비어서 시작한다. 오직 선택지로만 채워진다.
+    expect(state.field).toHaveLength(FIELD_START);
+    expect(state.deck).toHaveLength(STARTING_DECK.length);
     expect(state.shards).toBe(0);
   });
 
@@ -296,41 +313,22 @@ describe('선택 루프', () => {
     const rng = new Rng('loop');
     const state = createGame(rng);
     // 전투를 여는 선택지는 루프를 멈추므로, 전투가 없는 쪽을 골라 검증한다.
-    const side = state.current!.red.effects.some((f) => f.type === 'battle') ? 'blue' : 'red';
+    const side = state.current!.red.effects.some((f) => f.type === 'pushLuck') ? 'blue' : 'red';
     const first = state.current!.id;
 
     choose(state, side, rng);
 
-    expect(state.battle).toBeNull();
     expect(state.step).toBe(2);
     expect(state.current).not.toBeNull();
     expect(state.current!.id).not.toBe(first);
     expect(state.records).toHaveLength(1);
   });
 
-  it('전투를 여는 선택지는 전투가 끝날 때까지 다음 선택지를 세우지 않는다', () => {
-    const rng = new Rng('pause');
-    const state = createGame(rng);
-    state.current = EVENTS.find((e) => e.id === 'warden')!;
-    const step = state.step;
-
-    choose(state, 'red', rng);
-
-    // 손패에 낼 카드가 하나도 없으면 즉시 쫓겨나 전투가 바로 끝난다.
-    if (state.battle) {
-      expect(state.battle.outcome).toBe('ongoing');
-      expect(state.step).toBe(step);
-      expect(canPlay(state, 'no-such-uid').ok).toBe(false);
-    } else {
-      expect(state.battles).toHaveLength(1);
-    }
-  });
-
   it('종료 조건 없이 계속 돈다', () => {
     const rng = new Rng('endless');
     const state = createGame(rng);
 
-    for (let i = 0; i < 300 && !state.escaped && !state.dead; i++) {
+    for (let i = 0; i < 300 && !state.escaped && !state.dead && !state.push; i++) {
       choose(state, i % 2 === 0 ? 'red' : 'blue', rng);
     }
 
@@ -353,7 +351,7 @@ describe('선택 루프', () => {
     const rng = new Rng('adversarial');
     const state = createGame(rng);
 
-    for (let i = 0; i < 250 && !state.escaped && !state.dead; i++) {
+    for (let i = 0; i < 250 && !state.escaped && !state.dead && !state.push; i++) {
       const event = state.current!;
       // 매번 덱이 더 커지는 쪽을 고른다.
       const probe = structuredClone(state);
@@ -374,7 +372,7 @@ describe('선택 루프', () => {
     const state = createGame(rng);
     let peak = 0;
 
-    for (let i = 0; i < 200 && !state.escaped && !state.dead; i++) {
+    for (let i = 0; i < 200 && !state.escaped && !state.dead && !state.push; i++) {
       choose(state, rng.next() < 0.5 ? 'red' : 'blue', rng);
       peak = Math.max(peak, state.deck.length);
     }
@@ -405,7 +403,7 @@ describe('사망', () => {
     state.hp = CURSE_DAMAGE;
 
     state.deck = [];
-    state.hand = [];
+    state.field = [];
     apply(state, [{ type: 'addRandom', kind: 'curse', count: 10 }]);
     state.current = {
       id: 'test-lethal',
@@ -413,7 +411,7 @@ describe('사망', () => {
       red: {
         text: '',
         tone: 'gamble',
-        kind: 'consume',
+        kind: 'draw',
         effects: [
           {
             type: 'draw',
@@ -423,7 +421,7 @@ describe('사망', () => {
           },
         ],
       },
-      blue: { text: '', tone: 'safe', kind: 'cleanse', effects: [] },
+      blue: { text: '', tone: 'safe', kind: 'deck', effects: [] },
     };
 
     choose(state, 'red', rng);
@@ -465,7 +463,7 @@ describe('사망', () => {
           { type: 'draw', count: 3, onCurse: [{ type: 'damage', amount: CURSE_DAMAGE }], onReward: [] },
         ],
       },
-      blue: { text: '', tone: 'safe', kind: 'cleanse', effects: [] },
+      blue: { text: '', tone: 'safe', kind: 'deck', effects: [] },
     };
 
     choose(state, 'red', rng);
@@ -531,7 +529,7 @@ describe('덱 요약', () => {
     apply(state, [{ type: 'addRandom', kind: 'curse', count: 2 }]);
 
     const s = summarize(state);
-    expect(s.total).toBe(state.deck.length + state.hand.length);
+    expect(s.total).toBe(state.deck.length + state.field.length);
     expect(s.reward + s.curse + s.neutral + s.shard).toBe(s.total);
     expect(s.curse).toBe(2);
     expect(s.taint).toBeCloseTo(2 / s.total);
@@ -541,7 +539,7 @@ describe('덱 요약', () => {
   it('저주가 늘면 오염도 단계가 올라간다', () => {
     const state = createGame(new Rng('taint'));
     const clean = summarize(state).taintLabel;
-    apply(state, [{ type: 'addRandom', kind: 'curse', count: 10 }]);
+    apply(state, [{ type: 'addRandom', kind: 'curse', count: 25 }]);
     expect(summarize(state).taintLabel).not.toBe(clean);
     expect(summarize(state).taint).toBeGreaterThan(0.4);
   });
@@ -549,7 +547,7 @@ describe('덱 요약', () => {
   it('빈 덱에서도 오염도가 깨지지 않는다', () => {
     const state = createGame(new Rng('empty'));
     state.deck = [];
-    state.hand = [];
+    state.field = [];
     const s = summarize(state);
     expect(s.total).toBe(0);
     expect(s.taint).toBe(0);
@@ -561,6 +559,6 @@ describe('덱 요약', () => {
 
     expect(groups.map((g) => g.kind)).toEqual(['reward', 'neutral', 'curse', 'shard']);
     const total = groups.reduce((sum, g) => sum + g.cards.reduce((s, c) => s + c.count, 0), 0);
-    expect(total).toBe(state.deck.length + state.hand.length);
+    expect(total).toBe(state.deck.length + state.field.length);
   });
 });

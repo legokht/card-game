@@ -1,23 +1,24 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { Rng } from '../src/engine/rng';
 import {
-  curseCounts,
-  discardCurse,
-  drawToHand,
   applyRotDrain,
+  curseCounts,
+  drawToField,
   makeCurse,
-  mulligan,
   onEdge,
   peek,
+  purgeAll,
+  purgeCurse,
+  purgeRandom,
   resolvePairs,
-} from '../src/choice/hand';
+} from '../src/choice/field';
 import { choose, createGame, pushDraw, pushStop } from '../src/choice/engine';
 import { applyEffects, countKind, resetUidCounter } from '../src/choice/effects';
 import { EVENTS } from '../src/choice/events';
 import {
   CURSE_RULES,
   ERODE_CONVERT,
-  HAND_START,
+  FIELD_START,
   ROT_BURST,
   ROT_DRAIN,
 } from '../src/choice/balance';
@@ -36,8 +37,6 @@ function curse(type: CurseType): CardInstance {
     name: CURSE_RULES[type].name,
     kind: 'curse',
     value: 1,
-    attack: 0,
-    block: 0,
     curseType: type,
   };
 }
@@ -50,56 +49,81 @@ function plain(name = '은빛 검'): CardInstance {
     name,
     kind: 'reward',
     value: 4,
-    attack: 4,
-    block: 0,
   };
 }
 
-describe('시작 손패', () => {
-  it('게임을 시작하면 덱에서 손패를 뽑아 온다', () => {
+describe('시작 필드', () => {
+  it('필드는 비어서 시작한다 — 오직 선택지로만 채워진다', () => {
     const state = createGame(new Rng('start'));
-    expect(state.hand).toHaveLength(HAND_START);
+    expect(state.field).toHaveLength(FIELD_START);
+    expect(state.field).toHaveLength(0);
   });
 
-  it('손패는 선택을 넘어가도 유지된다', () => {
+  it('필드는 선택을 넘어가도 유지된다', () => {
     const rng = new Rng('persist');
     const state = createGame(rng);
-    const before = state.hand.map((c) => c.uid);
+    drawToField(state, 3, rng);
+    const before = state.field.map((c) => c.uid);
+    expect(before.length).toBeGreaterThan(0);
 
-    // 손패를 건드리지 않는 선택지를 골라 유지되는지 본다.
-    state.current = EVENTS.find((e) => e.id === 'twins')!;
+    // 필드를 건드리지 않는 선택지를 골라 유지되는지 본다.
+    state.current = EVENTS.find((e) => e.id === 'debt')!;
     choose(state, 'blue', rng);
 
-    for (const id of before) expect(state.hand.some((c) => c.uid === id)).toBe(true);
+    for (const id of before) expect(state.field.some((c) => c.uid === id)).toBe(true);
+  });
+
+  it('카드는 덱에서 필드로만 흐르고 되돌아가지 않는다', () => {
+    const rng = new Rng('one-way');
+    const state = createGame(rng);
+    const deckBefore = state.deck.length;
+
+    drawToField(state, 4, rng);
+
+    expect(state.deck).toHaveLength(deckBefore - 4);
+    expect(state.field).toHaveLength(4);
+    // 총량은 보존된다 — 사라지지도 늘어나지도 않는다.
+    expect(state.deck.length + state.field.length).toBe(deckBefore);
+  });
+
+  it('덱이 바닥나면 더 뽑지 못하고 로그에 남는다', () => {
+    const rng = new Rng('empty-deck');
+    const state = createGame(rng);
+    const total = state.deck.length;
+
+    drawToField(state, total + 5, rng);
+
+    expect(state.deck).toHaveLength(0);
+    expect(state.field.length).toBeLessThanOrEqual(total);
   });
 });
 
 describe('저주 겹침', () => {
-  it('같은 종류가 2장 모이면 발동하고 손패에서 빠진다', () => {
+  it('같은 종류가 2장 모이면 발동하고 필드에서 빠진다', () => {
     const state = createGame(new Rng('pair'));
-    state.hand = [plain(), curse('erode'), curse('erode')];
+    state.field = [plain(), curse('erode'), curse('erode')];
 
     const results = resolvePairs(state, new Rng('pair'));
 
     expect(results).toHaveLength(1);
     expect(results[0]!.type).toBe('erode');
-    expect(countKind(state.hand, 'curse')).toBeLessThan(2);
+    expect(countKind(state.field, 'curse')).toBeLessThan(2);
     expect(state.triggers.erode).toBe(1);
   });
 
   it('종류가 다르면 2장이어도 발동하지 않는다', () => {
     const state = createGame(new Rng('mixed'));
-    state.hand = [curse('rot'), curse('erode')];
+    state.field = [curse('rot'), curse('erode')];
 
     const results = resolvePairs(state, new Rng('mixed'));
 
     expect(results).toHaveLength(0);
-    expect(state.hand).toHaveLength(2);
+    expect(state.field).toHaveLength(2);
   });
 
   it('파멸이 겹치면 즉사한다', () => {
     const state = createGame(new Rng('doom'));
-    state.hand = [curse('doom'), curse('doom')];
+    state.field = [curse('doom'), curse('doom')];
 
     const results = resolvePairs(state, new Rng('doom'));
 
@@ -110,7 +134,7 @@ describe('저주 겹침', () => {
 
   it('부패가 겹치면 크게 터진다', () => {
     const state = createGame(new Rng('rot'));
-    state.hand = [curse('rot'), curse('rot')];
+    state.field = [curse('rot'), curse('rot')];
     const hp = state.hp;
 
     resolvePairs(state, new Rng('rot'));
@@ -118,37 +142,38 @@ describe('저주 겹침', () => {
     expect(state.hp).toBe(hp - ROT_BURST);
   });
 
-  it('침식이 겹치면 손패의 멀쩡한 카드가 저주로 바뀐다', () => {
+  it('침식이 겹치면 필드의 멀쩡한 카드가 저주로 바뀐다', () => {
     const state = createGame(new Rng('erode'));
-    state.hand = [curse('erode'), curse('erode'), plain(), plain(), plain()];
+    state.field = [curse('erode'), curse('erode'), plain(), plain(), plain()];
 
     resolvePairs(state, new Rng('erode'));
 
     // 침식 2장은 빠지고, 남은 멀쩡한 카드 중 일부가 저주가 된다.
-    expect(state.hand).toHaveLength(3);
-    expect(countKind(state.hand, 'curse')).toBe(ERODE_CONVERT);
+    expect(state.field).toHaveLength(3);
+    expect(countKind(state.field, 'curse')).toBe(ERODE_CONVERT);
   });
 
-  it('발동한 저주의 행선지는 종류마다 다르다', () => {
-    // 침식은 덱으로 돌아가고
-    const back = createGame(new Rng('back'));
-    back.deck = [];
-    back.hand = [curse('erode'), curse('erode'), plain()];
-    resolvePairs(back, new Rng('back'));
-    expect(back.deck.filter((c) => c.curseType === 'erode')).toHaveLength(2);
+  it('발동한 저주는 덱으로 돌아가지 않고 소멸한다', () => {
+    for (const type of ['erode', 'rot'] as const) {
+      resetUidCounter();
+      const state = createGame(new Rng(`gone-${type}`));
+      state.deck = [];
+      state.field = [curse(type), curse(type), plain()];
 
-    // 부패는 사라진다
-    resetUidCounter();
-    const gone = createGame(new Rng('gone'));
-    gone.deck = [];
-    gone.hand = [curse('rot'), curse('rot')];
-    resolvePairs(gone, new Rng('gone'));
-    expect(gone.deck.filter((c) => c.curseType === 'rot')).toHaveLength(0);
+      const originals = state.field.filter((c) => c.curseType === type).map((c) => c.uid);
+      resolvePairs(state, new Rng(`gone-${type}`));
+
+      // 필드는 한 방향이다. 벗어난 카드는 어디로도 돌아가지 않는다.
+      expect(state.deck).toHaveLength(0);
+      // 겹친 그 2장은 사라진다. (침식은 그 자리에 새 저주를 만들 수 있으므로
+      // 종류가 아니라 원래 카드의 uid로 확인한다.)
+      for (const uid of originals) expect(state.field.some((c) => c.uid === uid)).toBe(false);
+    }
   });
 
   it('여러 종류가 동시에 겹쳐도 전부 처리된다', () => {
     const state = createGame(new Rng('multi'));
-    state.hand = [curse('rot'), curse('rot'), curse('erode'), curse('erode'), plain()];
+    state.field = [curse('rot'), curse('rot'), curse('erode'), curse('erode'), plain()];
 
     const results = resolvePairs(state, new Rng('multi'));
 
@@ -159,23 +184,23 @@ describe('저주 겹침', () => {
 describe('저주 1장 — 가장 긴장되는 상태', () => {
   it('정확히 1장 있는 종류를 알려준다', () => {
     const state = createGame(new Rng('edge'));
-    state.hand = [curse('doom'), curse('rot'), curse('rot'), plain()];
+    state.field = [curse('doom'), curse('rot'), curse('rot'), plain()];
 
     // 파멸은 1장(위험), 부패는 2장이라 이미 겹친 상태다.
-    expect(onEdge(state.hand)).toEqual(['doom']);
+    expect(onEdge(state.field)).toEqual(['doom']);
   });
 
   it('저주가 없으면 빈 목록이다', () => {
     const state = createGame(new Rng('clean'));
-    state.hand = [plain(), plain()];
-    expect(onEdge(state.hand)).toEqual([]);
+    state.field = [plain(), plain()];
+    expect(onEdge(state.field)).toEqual([]);
   });
 });
 
 describe('부패의 지속 피해', () => {
-  it('손패에 있는 동안 매 선택마다 갉아먹는다', () => {
+  it('필드에 있는 동안 매 선택마다 갉아먹는다', () => {
     const state = createGame(new Rng('drain'));
-    state.hand = [curse('rot'), plain()];
+    state.field = [curse('rot'), plain()];
     const hp = state.hp;
 
     applyRotDrain(state);
@@ -185,8 +210,8 @@ describe('부패의 지속 피해', () => {
 
   it('장수에 비례한다', () => {
     const state = createGame(new Rng('drain2'));
-    // 겹치지 않게 손패에 직접 세 장을 두고 지속 피해만 본다.
-    state.hand = [curse('rot'), curse('rot'), curse('rot')];
+    // 겹치지 않게 필드에 직접 세 장을 두고 지속 피해만 본다.
+    state.field = [curse('rot'), curse('rot'), curse('rot')];
     const hp = state.hp;
 
     applyRotDrain(state);
@@ -197,8 +222,8 @@ describe('부패의 지속 피해', () => {
   it('선택할 때마다 실제로 적용된다', () => {
     const rng = new Rng('drain-loop');
     const state = createGame(rng);
-    state.hand = [curse('rot')];
-    state.current = EVENTS.find((e) => e.id === 'twins')!;
+    state.field = [curse('rot')];
+    state.current = EVENTS.find((e) => e.id === 'debt')!;
     const hp = state.hp;
 
     choose(state, 'blue', rng);
@@ -207,67 +232,77 @@ describe('부패의 지속 피해', () => {
   });
 });
 
-describe('손패 조작', () => {
-  it('뽑으면 덱에서 손패로 옮겨진다', () => {
+describe('필드 조작', () => {
+  it('뽑으면 덱에서 필드로 옮겨진다', () => {
     const state = createGame(new Rng('draw'));
     const deckBefore = state.deck.length;
-    const handBefore = state.hand.length;
 
-    drawToHand(state, 2, new Rng('draw'));
+    drawToField(state, 2, new Rng('draw'));
 
     expect(state.deck).toHaveLength(deckBefore - 2);
-    expect(state.hand.length).toBeGreaterThanOrEqual(handBefore);
+    expect(state.field).toHaveLength(2);
   });
 
   it('덱이 비면 더 뽑지 않는다', () => {
     const state = createGame(new Rng('dry'));
     state.deck = [];
-    const handBefore = state.hand.length;
+    const fieldBefore = state.field.length;
 
-    const lines = drawToHand(state, 3, new Rng('dry'));
+    const lines = drawToField(state, 3, new Rng('dry'));
 
-    expect(state.hand).toHaveLength(handBefore);
+    expect(state.field).toHaveLength(fieldBefore);
     expect(lines.join()).toContain('덱이 비어');
   });
 
-  it('저주를 버리면 손패에서 사라진다', () => {
+  it('저주를 버리면 필드에서 사라진다', () => {
     const state = createGame(new Rng('discard'));
-    state.hand = [curse('rot'), curse('erode'), plain()];
+    state.field = [curse('rot'), curse('erode'), plain()];
 
-    discardCurse(state, 1, 'rot');
+    purgeCurse(state, 1, 'rot');
 
-    expect(state.hand.filter((c) => c.curseType === 'rot')).toHaveLength(0);
-    expect(state.hand).toHaveLength(2);
+    expect(state.field.filter((c) => c.curseType === 'rot')).toHaveLength(0);
+    expect(state.field).toHaveLength(2);
   });
 
-  it('버릴 저주가 없으면 그냥 넘어간다', () => {
+  it('없앨 저주가 없으면 그냥 넘어간다', () => {
     const state = createGame(new Rng('none'));
-    state.hand = [plain()];
+    state.field = [plain()];
 
-    const lines = discardCurse(state, 2);
+    const lines = purgeCurse(state, 2);
 
     expect(lines.join()).toContain('없었다');
-    expect(state.hand).toHaveLength(1);
+    expect(state.field).toHaveLength(1);
   });
 
-  it('멀리건은 손패를 덱으로 돌리고 새로 뽑는다', () => {
-    const state = createGame(new Rng('mull'));
-    state.hand = [curse('rot'), curse('erode')];
+  it('무작위 제거는 저주든 아니든 가리지 않는다', () => {
+    const state = createGame(new Rng('rand'));
+    state.field = [curse('rot'), plain(), plain(), plain()];
+
+    purgeRandom(state, 2, new Rng('rand'));
+
+    expect(state.field).toHaveLength(2);
+  });
+
+  it('전체 정리는 필드를 통째로 비운다 — 보상까지', () => {
+    const state = createGame(new Rng('all'));
+    state.field = [curse('rot'), plain(), plain()];
     const deckBefore = state.deck.length;
 
-    mulligan(state, 3, new Rng('mull'));
+    const lines = purgeAll(state);
 
-    // 2장 돌려주고 3장 뽑았으므로 덱은 1장 줄어든다.
-    expect(state.deck).toHaveLength(deckBefore + 2 - 3);
+    expect(state.field).toHaveLength(0);
+    // 덱으로 돌아가지 않는다.
+    expect(state.deck).toHaveLength(deckBefore);
+    expect(lines.join()).toContain('쓸어냈다');
   });
 
   it('엿보기는 본 것 중 일부만 가져온다', () => {
     const state = createGame(new Rng('peek'));
-    const handBefore = state.hand.length;
+    const fieldBefore = state.field.length;
 
     peek(state, 3, 1, new Rng('peek'));
 
-    expect(state.hand).toHaveLength(handBefore + 1);
+    expect(state.field).toHaveLength(fieldBefore + 1);
   });
 });
 
@@ -278,7 +313,7 @@ describe('파멸은 덱에 아주 적게만 존재한다', () => {
 
     for (let i = 0; i < 60; i++) state.deck.push(makeCurse(state, rng));
 
-    const doom = curseCounts([...state.deck, ...state.hand]).doom;
+    const doom = curseCounts([...state.deck, ...state.field]).doom;
     expect(doom).toBeLessThanOrEqual(CURSE_RULES.doom.deckMax);
   });
 
@@ -289,7 +324,7 @@ describe('파멸은 덱에 아주 적게만 존재한다', () => {
 
     applyEffects(state, add, rng);
 
-    expect(curseCounts([...state.deck, ...state.hand]).doom).toBeLessThanOrEqual(
+    expect(curseCounts([...state.deck, ...state.field]).doom).toBeLessThanOrEqual(
       CURSE_RULES.doom.deckMax,
     );
   });
@@ -317,20 +352,21 @@ describe('푸시 유어 럭', () => {
     expect(state).toEqual(snapshot);
   });
 
-  it('한 장씩 뽑히고 손패가 늘어난다', () => {
+  it('한 장씩 뽑히고 필드가 늘어난다', () => {
     const { state, rng } = openPush('one');
-    const before = state.hand.length;
+    const before = state.field.length;
 
     pushDraw(state, rng);
 
     expect(state.push!.drawn).toBe(1);
-    expect(state.hand.length).toBeGreaterThanOrEqual(before);
+    expect(state.field.length).toBeGreaterThanOrEqual(before);
   });
 
   it('저주가 겹치면 강제로 중단된다', () => {
     const { state, rng } = openPush('stop');
-    state.hand = [curse('erode')];
-    state.deck = [curse('erode'), plain(), plain()];
+    state.field = [curse('erode')];
+    // 덱에 침식만 두어 무엇을 뽑든 겹치게 한다.
+    state.deck = [curse('erode')];
 
     pushDraw(state, rng);
 
@@ -352,7 +388,7 @@ describe('푸시 유어 럭', () => {
 
   it('저주 1장을 들고 더 뽑은 횟수와 겹친 횟수를 센다', () => {
     const { state, rng } = openPush('risky');
-    state.hand = [curse('erode')];
+    state.field = [curse('erode')];
     state.deck = [curse('erode')];
 
     pushDraw(state, rng);
@@ -366,8 +402,8 @@ describe('기록', () => {
   it('사망 원인이 남는다', () => {
     const rng = new Rng('cause');
     const state = createGame(rng);
-    state.hand = [curse('doom'), curse('doom')];
-    state.current = EVENTS.find((e) => e.id === 'twins')!;
+    state.field = [curse('doom'), curse('doom')];
+    state.current = EVENTS.find((e) => e.id === 'debt')!;
 
     choose(state, 'blue', rng);
 
@@ -375,7 +411,7 @@ describe('기록', () => {
     expect(state.causeOfDeath).toContain('파멸');
   });
 
-  it('손패 크기와 저주 발동 횟수가 쌓인다', () => {
+  it('필드 크기와 저주 발동 횟수가 쌓인다', () => {
     const rng = new Rng('stats');
     const state = createGame(rng);
 
@@ -387,39 +423,40 @@ describe('기록', () => {
       choose(state, i % 2 ? 'red' : 'blue', rng);
     }
 
-    expect(state.handSizes.length).toBeGreaterThan(0);
+    expect(state.fieldSizes.length).toBeGreaterThan(0);
     expect(Object.values(state.triggers).every((n) => n >= 0)).toBe(true);
   });
 });
 
 describe('선택지 배합', () => {
-  it('뽑기형과 손패 정리형이 각각 3개 이상 있다', () => {
+  it('뽑기형과 제거형이 각각 4개 이상 있다', () => {
     const counts: Partial<Record<OptionKind, number>> = {};
     for (const e of EVENTS) {
       counts[e.red.kind] = (counts[e.red.kind] ?? 0) + 1;
       counts[e.blue.kind] = (counts[e.blue.kind] ?? 0) + 1;
     }
-    expect(counts.draw ?? 0).toBeGreaterThanOrEqual(3);
-    expect(counts.purge ?? 0).toBeGreaterThanOrEqual(3);
+    expect(counts.draw ?? 0).toBeGreaterThanOrEqual(4);
+    expect(counts.purge ?? 0).toBeGreaterThanOrEqual(4);
   });
 
-  it('손패를 건드리는 선택지는 readsHand로 표시돼 있다', () => {
-    const touchesHand = (fx: Effect[]): boolean =>
+  it('필드를 건드리는 선택지는 readsField로 표시돼 있다', () => {
+    const touchesField = (fx: Effect[]): boolean =>
       fx.some(
         (f) =>
-          f.type === 'drawHand' ||
+          f.type === 'drawField' ||
           f.type === 'pushLuck' ||
           f.type === 'peek' ||
-          f.type === 'discardCurse' ||
-          f.type === 'mulligan' ||
-          f.type === 'healPerHandCard' ||
-          f.type === 'ifHand' ||
-          (f.type === 'ifThen' && (touchesHand(f.then) || touchesHand(f.otherwise))),
+          f.type === 'purgeCurse' ||
+          f.type === 'purgeRandom' ||
+          f.type === 'purgeAll' ||
+          f.type === 'healPerFieldCard' ||
+          f.type === 'ifField' ||
+          (f.type === 'ifThen' && (touchesField(f.then) || touchesField(f.otherwise))),
       );
 
     for (const e of EVENTS) {
-      if (touchesHand(e.red.effects) || touchesHand(e.blue.effects)) {
-        expect(e.readsHand, e.id).toBe(true);
+      if (touchesField(e.red.effects) || touchesField(e.blue.effects)) {
+        expect(e.readsField, e.id).toBe(true);
       }
     }
   });

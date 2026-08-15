@@ -14,10 +14,6 @@ export interface CardDef {
   id: string;
   name: string;
   kind: CardKind;
-  /** 전투에서 적에게 주는 피해. 저주는 0이고 애초에 낼 수 없다. */
-  attack: number;
-  /** 전투에서 이번 턴 적의 공격을 막아내는 양. */
-  block: number;
   /**
    * 카드의 값어치. "가장 값나가는 카드를 버린다" 같은 덱 참조형 선택지가
    * 무엇을 집을지 정하는 데 쓰인다.
@@ -34,15 +30,13 @@ export interface CardInstance {
   name: string;
   kind: CardKind;
   value: number;
-  attack: number;
-  block: number;
   curseType?: CurseType;
 }
 
-export type HandCondition =
-  | { type: 'handCurseAtLeast'; n: number }
-  | { type: 'handSizeAtLeast'; n: number }
-  | { type: 'handSizeAtMost'; n: number };
+export type FieldCondition =
+  | { type: 'fieldCurseAtLeast'; n: number }
+  | { type: 'fieldSizeAtLeast'; n: number }
+  | { type: 'fieldSizeAtMost'; n: number };
 
 export type Condition =
   | { type: 'countAtLeast'; kind: CardKind; n: number }
@@ -59,14 +53,14 @@ export type Condition =
 /**
  * 선택지 유형. 배합을 눈으로 확인하고 테스트로 강제하기 위해 명시한다.
  *
- * - `consume`: 덱에서 뽑아 판정. 저주가 실제로 아파지는 자리
- * - `cleanse`: 저주 제거·교체. 덱을 다듬는다
+ * - `draw`: 덱에서 필드로 가져온다. 저주가 겹칠 위험을 안는다
+ * - `purge`: 필드에서 카드를 없앤다. 필드가 줄어드는 유일한 출구
+ * - `deck`: 덱 구성을 바꾼다. 지금이 아니라 앞으로에 영향을 준다
+ * - `field`: 지금 필드 상태를 조건으로 삼는다
  * - `shard`: 탈출 카운트 증가. 반드시 명확한 대가를 동반한다
  * - `gain`: 보상 획득. 대가 없이는 안 된다
- * - `draw`: 덱에서 손패로 가져온다. 저주가 겹칠 위험을 안는다
- * - `purge`: 손패에서 저주를 버린다. 겹치기 전에 털어내는 자리
  */
-export type OptionKind = 'consume' | 'cleanse' | 'shard' | 'gain' | 'draw' | 'purge';
+export type OptionKind = 'draw' | 'purge' | 'deck' | 'field' | 'shard' | 'gain';
 
 export type Effect =
   | { type: 'addSpecific'; cardId: string; count: number }
@@ -86,21 +80,22 @@ export type Effect =
    */
   | { type: 'draw'; count: number; onCurse: Effect[]; onReward: Effect[] }
   /** 전투를 시작한다. 이기면 onWin이 적용된다. */
-  | { type: 'battle'; enemyId: string; onWin: Effect[] }
-  /** 덱에서 손패로 가져온다. 저주가 겹치면 그 자리에서 발동한다. */
-  | { type: 'drawHand'; count: number }
+  /** 덱에서 필드로 가져온다. 저주가 겹치면 그 자리에서 발동한다. */
+  | { type: 'drawField'; count: number }
   /** 푸시 유어 럭. 플레이어가 멈출 때까지 한 장씩 뽑는다. */
   | { type: 'pushLuck' }
-  /** 덱 맨 위 count장을 보고 그중 keep장만 손패로. 나머지는 덱으로 돌아간다. */
+  /** 덱 맨 위 count장을 보고 그중 keep장만 필드로. 나머지는 덱에 그대로 남는다. */
   | { type: 'peek'; count: number; keep: number }
-  /** 손패에서 저주를 버린다. 종류를 지정하면 그 종류만. */
-  | { type: 'discardCurse'; count: number; curseType?: CurseType }
-  /** 손패를 전부 버리고 덱에서 다시 뽑는다. */
-  | { type: 'mulligan'; draw: number }
-  /** 손패 상태를 보는 조건부. */
-  | { type: 'ifHand'; when: HandCondition; then: Effect[]; otherwise: Effect[] }
-  /** 손패 장수에 비례해 회복한다. */
-  | { type: 'healPerHandCard'; amount: number }
+  /** 필드에서 저주를 없앤다. 종류를 지정하면 그 종류만. */
+  | { type: 'purgeCurse'; count: number; curseType?: CurseType }
+  /** 필드에서 무작위로 없앤다. 저주든 아니든 가리지 않는다. */
+  | { type: 'purgeRandom'; count: number }
+  /** 필드를 통째로 비운다. */
+  | { type: 'purgeAll' }
+  /** 필드 상태를 보는 조건부. */
+  | { type: 'ifField'; when: FieldCondition; then: Effect[]; otherwise: Effect[] }
+  /** 필드 장수에 비례해 회복한다. */
+  | { type: 'healPerFieldCard'; amount: number }
   | { type: 'ifThen'; when: Condition; then: Effect[]; otherwise: Effect[] };
 
 /** 감정 축. 계산 없이도 어느 쪽인지 읽히게 하는 라벨. */
@@ -114,42 +109,6 @@ export interface ChoiceOption {
   effects: Effect[];
 }
 
-export interface EnemyDef {
-  id: string;
-  name: string;
-  hp: number;
-  /** 매 턴 플레이어에게 넣는 피해. */
-  attack: number;
-}
-
-export type BattleOutcome = 'ongoing' | 'won' | 'lost' | 'fled';
-
-/**
- * 전투 한 판.
- *
- * 시작할 때 덱에서 손패를 뽑아 가고, 낸 카드는 덱에서 영영 사라진다.
- * 저주는 손패 자리만 차지하고 낼 수 없으며, 끝나면 덱으로 돌아간다.
- */
-export interface BattleState {
-  enemy: EnemyDef;
-  enemyHp: number;
-  hand: CardInstance[];
-  /** 이번 턴에 적의 공격을 깎아낼 양. 턴이 끝나면 사라진다. */
-  block: number;
-  turn: number;
-  outcome: BattleOutcome;
-  /** 이겼을 때 적용할 보상. */
-  onWin: Effect[];
-  /** 낸 카드 수 (= 덱에서 사라진 수). */
-  spent: number;
-  /** 시작 손패에 잡힌 저주 수. 덱 관리의 성적표다. */
-  cursesDrawn: number;
-  handSize: number;
-  /** 전투 시작 시점의 덱 저주 비율. */
-  taintAtStart: number;
-  log: string[];
-}
-
 export interface ChoiceEvent {
   id: string;
   /** 상황 한 줄. 없으면 선택지 두 개만 보여준다. */
@@ -160,8 +119,8 @@ export interface ChoiceEvent {
   hasShard?: boolean;
   /** 덱 상태에 따라 결과가 달라지는 선택지. */
   readsDeck?: boolean;
-  /** 손패 상태를 보거나 손패를 건드리는 선택지. */
-  readsHand?: boolean;
+  /** 필드 상태를 보거나 필드를 건드리는 선택지. */
+  readsField?: boolean;
 }
 
 /** 선택 한 번의 기록. */
@@ -175,22 +134,6 @@ export interface ChoiceRecord {
   deckSizeAfter: number;
   curseCountAfter: number;
   hpAfter: number;
-}
-
-/** 전투 한 판의 기록. 밸런스 검증용. */
-export interface BattleRecord {
-  step: number;
-  enemyId: string;
-  outcome: BattleOutcome;
-  /** 시작 손패에 잡힌 저주 수 / 손패 크기. */
-  cursesDrawn: number;
-  handSize: number;
-  /** 전투 시작 시점의 덱 저주 비율. */
-  taintAtStart: number;
-  /** 덱에서 영영 사라진 카드 수. */
-  spent: number;
-  turns: number;
-  hpLost: number;
 }
 
 /** 뽑기를 계속할지 멈출지 플레이어가 정하는 중인 상태. */
@@ -207,10 +150,13 @@ export interface GameState {
   step: number;
   deck: CardInstance[];
   /**
-   * 상시 손패. 전투도 이걸 쓴다.
-   * 저주가 여기서 겹치면 발동하므로, 손패 관리가 곧 생존이다.
+   * 필드. 뽑은 카드는 여기 펼쳐진 채로 계속 남는다.
+   *
+   * 카드는 덱 → 필드 한 방향으로만 흐른다. 필드에서 벗어나는 길은 둘뿐이다:
+   * 선택지를 통한 제거, 그리고 같은 저주 2장이 겹쳐 소멸하는 것.
+   * 그래서 필드는 스스로 줄지 않고, 뽑을수록 겹칠 확률이 올라간다.
    */
-  hand: CardInstance[];
+  field: CardInstance[];
   /** 푸시 유어 럭 진행 중이면 채워진다. */
   push: PushState | null;
   shards: number;
@@ -221,11 +167,6 @@ export interface GameState {
   maxHp: number;
   dead: boolean;
 
-  /** 진행 중인 전투. 있으면 선택 화면 대신 전투 화면이 뜬다. */
-  battle: BattleState | null;
-  /** 이번 선택이 예약한 전투. 효과가 전부 적용된 뒤에 열린다. */
-  pendingBattle: { enemyId: string; onWin: Effect[] } | null;
-
   /** 지금 제시된 선택지. 탈출하면 null. */
   current: ChoiceEvent | null;
   /** 최근에 나온 이벤트 id들. 바로 다시 뽑히지 않게 하는 용도. */
@@ -233,13 +174,14 @@ export interface GameState {
 
   log: string[];
   records: ChoiceRecord[];
-  battles: BattleRecord[];
   /** 저주 종류별 발동 횟수. */
   triggers: Record<CurseType, number>;
   /** 사망 원인. 저주가 겹쳐 죽었으면 그 종류. */
   causeOfDeath: string | null;
-  /** 매 선택 후의 손패 크기. 평균을 내기 위한 것. */
-  handSizes: number[];
-  /** 손패에 저주 1장을 들고 추가로 뽑은 횟수와, 그때 겹쳐버린 횟수. */
+  /** 매 선택 후의 필드 크기. 평균을 내기 위한 것. */
+  fieldSizes: number[];
+  /** 필드에 저주 1장이 있는 상태에서 더 뽑은 횟수와, 그때 겹쳐버린 횟수. */
   riskyDraws: { taken: number; paired: number };
+  /** 덱이 바닥난 시점의 선택 번호. 아직이면 null. */
+  deckEmptiedAt: number | null;
 }
