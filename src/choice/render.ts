@@ -1,7 +1,17 @@
-import { CURSE_DAMAGE, FLEE_HP_COST } from './balance';
+import { CURSE_DAMAGE, CURSE_RULES, FLEE_HP_COST, ROT_DRAIN } from './balance';
 import { canPlay } from './battle';
-import { deckByKind, summarize } from './engine';
-import type { BattleState, CardKind, ChoiceOption, GameState, OptionKind, Tone } from './types';
+import { deckCurseBreakdown, deckByKind, summarize } from './engine';
+import { curseCounts, onEdge } from './hand';
+import type {
+  BattleState,
+  CardInstance,
+  CardKind,
+  ChoiceOption,
+  CurseType,
+  GameState,
+  OptionKind,
+  Tone,
+} from './types';
 
 /**
  * 상태를 읽어 DOM을 다시 그리기만 한다.
@@ -15,6 +25,8 @@ export interface Handlers {
   onPlayCard: (uid: string) => void;
   onFlee: () => void;
   onCloseBattle: () => void;
+  onPushDraw: () => void;
+  onPushStop: () => void;
   onRestart: () => void;
 }
 
@@ -30,9 +42,11 @@ const TONE_LABEL: Record<Tone, string> = {
 /** 어떤 종류의 선택인지 배지로 알려준다. 덱소비형은 특히 미리 보여야 한다. */
 const OPTION_LABEL: Record<OptionKind, string> = {
   consume: '덱 사용',
-  cleanse: '정리',
+  cleanse: '덱 정리',
   shard: '탈출',
   gain: '획득',
+  draw: '뽑기',
+  purge: '손패 정리',
 };
 
 const KIND_LABEL: Record<CardKind, string> = {
@@ -51,6 +65,90 @@ function optionButton(side: 'red' | 'blue', option: ChoiceOption): string {
       </span>
       <span class="pick__text">${option.text}</span>
     </button>`;
+}
+
+/**
+ * 상시 손패.
+ *
+ * 저주는 종류별로 색이 다르고, **같은 종류가 정확히 1장 있는 카드는 테두리가
+ * 살아난다** — 한 장 더 뽑으면 겹친다는 뜻이다. 계산 없이 그 상태가 보이는 것이
+ * 이 화면의 전부다.
+ */
+function handPanel(state: GameState, interactive: boolean): string {
+  const edged = onEdge(state.hand);
+  const counts = curseCounts(state.hand);
+
+  const cards = state.hand
+    .map((card: CardInstance) => {
+      const onTheEdge = card.curseType !== undefined && edged.includes(card.curseType);
+      const locked = interactive ? !canPlay(state, card.uid).ok : true;
+      const cls = [
+        'hcard',
+        `hcard--${card.kind}`,
+        card.curseType ? `hcard--${card.curseType}` : '',
+        onTheEdge ? 'is-edge' : '',
+        interactive && locked ? 'is-locked' : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
+      return `
+        <button class="${cls}" data-uid="${card.uid}" ${card.kind === 'curse' ? 'aria-disabled="true"' : ''}>
+          <span class="hcard__name">${card.name}</span>
+          ${
+            card.kind === 'curse'
+              ? `<span class="hcard__note">${onTheEdge ? '한 장 더면 발동' : '사용 불가'}</span>`
+              : `<span class="hcard__stats">${card.attack > 0 ? `<span class="atk">공 ${card.attack}</span>` : ''}${
+                  card.block > 0 ? `<span class="blk">방 ${card.block}</span>` : ''
+                }</span>`
+          }
+        </button>`;
+    })
+    .join('');
+
+  const warnings = edged
+    .map((t) => `<span class="edgewarn edgewarn--${t}">${CURSE_RULES[t].name} 1장 — 겹치면 ${CURSE_RULES[t].description}</span>`)
+    .join('');
+
+  const rot = counts.rot;
+
+  return `
+    <section class="hand" aria-label="손패">
+      <div class="hand__head">
+        <span class="hand__label">손패 <b>${state.hand.length}</b>장</span>
+        ${rot > 0 ? `<span class="hand__rot">부패 ${rot}장 — 매 선택 체력 -${rot * ROT_DRAIN}</span>` : ''}
+      </div>
+      ${warnings ? `<div class="edgewarns">${warnings}</div>` : ''}
+      <div class="hcards">${cards || '<p class="hcards__empty">손이 비었다</p>'}</div>
+    </section>`;
+}
+
+/** 푸시 유어 럭 화면. 한 장씩 뽑으며 멈출지 정한다. */
+function pushView(state: GameState): string {
+  const push = state.push!;
+  const edged = onEdge(state.hand);
+
+  return `
+    <div class="push">
+      <p class="push__head">
+        ${push.drawn}장 뽑았다.
+        ${
+          push.stopped
+            ? '<b class="push__stop">겹쳐서 끝났다</b>'
+            : edged.length > 0
+              ? `<b class="push__risk">${edged.map((t) => CURSE_RULES[t].name).join(', ')} 1장 — 한 장 더면 발동</b>`
+              : '아직 겹친 것은 없다.'
+        }
+      </p>
+      <div class="push__controls">
+        ${
+          push.stopped
+            ? `<button id="push-stop" class="btn">계속</button>`
+            : `<button id="push-draw" class="btn">한 장 더</button>
+               <button id="push-stop" class="btn btn--flee">여기서 멈춘다</button>`
+        }
+      </div>
+      <section class="blog">${push.log.map((l) => `<p>${l}</p>`).join('') || '<p>덱에 손을 넣는다…</p>'}</section>
+    </div>`;
 }
 
 /** 체력. 저주 피해를 받는 대상이라 항상 보여야 한다. */
@@ -135,6 +233,15 @@ function deckPanel(state: GameState): string {
         저주 <b>${s.curse}</b> / 전체 <b>${s.total}</b>
         <span class="curseratio__pct">${Math.round(s.taint * 100)}%</span>
       </div>
+      <p class="cursekinds__label">덱에 남아 아직 뽑힐 수 있는 저주</p>
+      <div class="cursekinds">${(Object.keys(CURSE_RULES) as CurseType[])
+        .map(
+          (t) =>
+            `<span class="cursekind cursekind--${t}">${CURSE_RULES[t].name} <b>${
+              deckCurseBreakdown(state)[t]
+            }</b></span>`,
+        )
+        .join('')}</div>
       <p class="curseratio__note">덱 사용 선택지에서 저주 한 장당 체력 -${CURSE_DAMAGE}</p>
       <div class="bar">${bars || '<i class="seg seg--none"></i>'}</div>
       <div class="tallies">${counts}</div>
@@ -153,25 +260,6 @@ function battleView(state: GameState, battle: BattleState): string {
   const usable = battle.hand.filter((c) => canPlay(state, c.uid).ok).length;
   const enemyPct = Math.max(0, (battle.enemyHp / battle.enemy.hp) * 100);
   const over = battle.outcome !== 'ongoing';
-
-  const cards = battle.hand
-    .map((card) => {
-      const locked = !canPlay(state, card.uid).ok;
-      const isCurse = card.kind === 'curse';
-      return `
-        <button class="bcard bcard--${card.kind} ${locked ? 'is-locked' : ''}" data-uid="${card.uid}"
-          ${isCurse ? 'aria-disabled="true"' : ''}>
-          <span class="bcard__name">${card.name}</span>
-          ${
-            isCurse
-              ? `<span class="bcard__blocked">사용 불가</span>`
-              : `<span class="bcard__stats">${
-                  card.attack > 0 ? `<span class="atk">피해 ${card.attack}</span>` : ''
-                }${card.block > 0 ? `<span class="blk">방어 ${card.block}</span>` : ''}</span>`
-          }
-        </button>`;
-    })
-    .join('');
 
   const result =
     battle.outcome === 'won'
@@ -199,8 +287,6 @@ function battleView(state: GameState, battle: BattleState): string {
         }">${usable}</b>장
         ${battle.cursesDrawn > 0 ? `<span class="handline__curse">저주 ${battle.cursesDrawn}장이 자리를 막고 있다</span>` : ''}
       </div>
-
-      <div class="bhand">${cards || '<p class="bhand__empty">손패가 비었다</p>'}</div>
 
       ${
         over
@@ -246,14 +332,17 @@ export function render(root: HTMLElement, state: GameState, handlers: Handlers):
 
     <main class="stage">
       ${
-        state.battle
-          ? battleView(state, state.battle)
-          : state.dead
+        state.push
+          ? pushView(state)
+          : state.battle
+            ? battleView(state, state.battle)
+            : state.dead
           ? `<div class="dead" role="status">
                <span class="dead__word">사망</span>
+               <span class="dead__cause">${state.causeOfDeath ?? '체력이 바닥났다'}</span>
                <span class="dead__sub">파편 ${state.shards}/${state.escapeTarget}에서 멈췄다 · 선택 ${
                  state.step
-               }회 · 마지막 덱의 저주 ${summarize(state).curse}/${summarize(state).total}</span>
+               }회 · 저주 ${summarize(state).curse}/${summarize(state).total}</span>
              </div>`
           : state.escaped
           ? `<div class="escaped" role="status">
@@ -271,8 +360,10 @@ export function render(root: HTMLElement, state: GameState, handlers: Handlers):
             ${event?.readsDeck ? `<p class="tag">이 선택은 지금 덱 상태를 읽는다</p>` : ''}
           `
       }
-      ${state.battle ? '' : recentChanges(state)}
+      ${state.battle || state.push ? '' : recentChanges(state)}
     </main>
+
+    ${handPanel(state, state.battle !== null && state.battle.outcome === 'ongoing')}
 
     ${deckPanel(state)}
 
@@ -285,10 +376,12 @@ export function render(root: HTMLElement, state: GameState, handlers: Handlers):
   root.querySelectorAll<HTMLButtonElement>('.pick').forEach((el) => {
     el.addEventListener('click', () => handlers.onChoose(el.dataset.side as 'red' | 'blue'));
   });
-  root.querySelectorAll<HTMLButtonElement>('.bcard:not(.is-locked)').forEach((el) => {
+  root.querySelectorAll<HTMLButtonElement>('.hcard:not(.is-locked)').forEach((el) => {
     el.addEventListener('click', () => handlers.onPlayCard(el.dataset.uid!));
   });
   root.querySelector('#flee')?.addEventListener('click', handlers.onFlee);
+  root.querySelector('#push-draw')?.addEventListener('click', handlers.onPushDraw);
+  root.querySelector('#push-stop')?.addEventListener('click', handlers.onPushStop);
   root.querySelector('#close-battle')?.addEventListener('click', handlers.onCloseBattle);
   root.querySelector('#restart')?.addEventListener('click', handlers.onRestart);
 

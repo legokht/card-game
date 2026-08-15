@@ -1,6 +1,7 @@
 import type { Rng } from '../engine/rng';
 import {
   ESCAPE_TARGET,
+  HAND_START,
   MAX_HP,
   RECENT_WINDOW,
   SHARD_EVENT_RATE,
@@ -9,8 +10,16 @@ import {
 } from './balance';
 import { collectHand, isOver, startBattle } from './battle';
 import { applyEffects, buildDeck, countKind } from './effects';
+import { applyRotDrain, curseCounts, drawOne, drawToHand, onEdge, resolvePairs } from './hand';
 import { EVENTS } from './events';
-import type { BattleRecord, CardInstance, CardKind, ChoiceEvent, GameState } from './types';
+import type {
+  BattleRecord,
+  CardInstance,
+  CardKind,
+  ChoiceEvent,
+  CurseType,
+  GameState,
+} from './types';
 
 /**
  * 선택 루프. 전투도 승패도 없고, 버튼을 누르면 덱이 바뀌는 것만 있다.
@@ -36,7 +45,12 @@ export interface DeckSummary {
  * 저주 비율도 사라진다.
  */
 export function ownedCards(state: GameState): CardInstance[] {
-  return state.battle ? [...state.deck, ...state.battle.hand] : state.deck;
+  return [...state.deck, ...state.hand];
+}
+
+/** 덱에 남아 있는 저주를 종류별로. UI에 "파멸 2 / 부패 5 / 침식 3"으로 뜬다. */
+export function deckCurseBreakdown(state: GameState): Record<CurseType, number> {
+  return curseCounts(state.deck);
 }
 
 export function summarize(state: GameState): DeckSummary {
@@ -93,6 +107,8 @@ export function createGame(rng: Rng): GameState {
     hp: MAX_HP,
     maxHp: MAX_HP,
     dead: false,
+    hand: [],
+    push: null,
     battle: null,
     pendingBattle: null,
     current: null,
@@ -100,12 +116,20 @@ export function createGame(rng: Rng): GameState {
     log: [],
     records: [],
     battles: [],
+    triggers: { doom: 0, rot: 0, erode: 0 },
+    causeOfDeath: null,
+    handSizes: [],
+    riskyDraws: { taken: 0, paired: 0 },
   };
+
+  // 시작 손패. 여기서부터 손패는 계속 유지된다.
+  drawToHand(state, HAND_START, rng);
 
   state.current = drawEvent(state, rng);
   remember(state, state.current.id);
   state.log.push(
-    `시작. 덱 ${state.deck.length}장, 체력 ${MAX_HP}. 탈출구 파편 0/${ESCAPE_TARGET}.`,
+    `시작. 덱 ${state.deck.length}장, 손패 ${state.hand.length}장, 체력 ${MAX_HP}. ` +
+      `탈출구 파편 0/${ESCAPE_TARGET}.`,
   );
 
   return state;
@@ -113,11 +137,20 @@ export function createGame(rng: Rng): GameState {
 
 /** 한쪽을 고르고 덱에 즉시 반영한 뒤 다음 선택지를 제시한다. */
 export function choose(state: GameState, side: 'red' | 'blue', rng: Rng): void {
-  if (state.escaped || state.dead || state.battle || !state.current) return;
+  if (state.escaped || state.dead || state.battle || state.push || !state.current) return;
 
   const event = state.current;
   const option = event[side];
   const changes = applyEffects(state, option.effects, rng);
+
+  // 겹침은 뽑을 때 처리되지만, 손패에 저주를 넣는 경로가 뽑기만은 아니다
+  // (침식의 변환, 앞으로 추가될 효과들). 매 선택 끝에 한 번 더 확인해
+  // "같은 저주 2장이 손에 남아 있는" 상태가 생기지 않게 못박는다.
+  for (const t of resolvePairs(state, rng)) changes.push(...t.lines);
+
+  // 손패의 부패는 겹치지 않아도 매 선택마다 갉아먹는다.
+  changes.push(...applyRotDrain(state));
+  state.handSizes.push(state.hand.length);
 
   const summary = summarize(state);
   state.records.push({
@@ -133,6 +166,9 @@ export function choose(state: GameState, side: 'red' | 'blue', rng: Rng): void {
 
   state.log.push(`${state.step}. [${side === 'red' ? '빨강' : '파랑'}] ${option.text}`);
   for (const c of changes) state.log.push(`   ${c}`);
+
+  // 푸시 유어 럭이 열렸으면 플레이어가 멈출 때까지 기다린다.
+  if (state.push) return;
 
   // 전투가 예약됐으면 여기서 연다. 다음 선택지는 전투가 끝난 뒤에 뽑는다.
   const pending = state.pendingBattle;
@@ -185,13 +221,75 @@ export function finishBattle(state: GameState, rng: Rng, hpBefore: number): void
   state.battle = null;
 
   if (state.hp <= 0) {
-    state.hp = 0;
-    state.dead = true;
-    state.current = null;
-    state.log.push(`사망 — 파편 ${state.shards}/${state.escapeTarget}에서 멈췄다.`);
+    die(state);
     return;
   }
 
+  advance(state, rng);
+}
+
+/** 사망 처리. 무엇에 죽었는지 남긴다. */
+function die(state: GameState): void {
+  state.hp = 0;
+  state.dead = true;
+  state.current = null;
+  state.push = null;
+
+  // 마지막에 발동한 저주가 사인이다. 파멸이면 즉사, 아니면 누적 피해.
+  const last = state.log.slice(-6).reverse();
+  const cause = last.find((l) => l.includes('파멸이 완성'))
+    ? '파멸 2장이 겹쳤다'
+    : last.find((l) => l.includes('부패가 터졌다'))
+      ? '부패가 터졌다'
+      : last.find((l) => l.includes('갉아먹는다'))
+        ? '손패의 부패에 갉아먹혔다'
+        : '체력이 바닥났다';
+  state.causeOfDeath = cause;
+  state.log.push(`사망 — ${cause}. 파편 ${state.shards}/${state.escapeTarget}에서 멈췄다.`);
+}
+
+/**
+ * 푸시 유어 럭에서 한 장 더 뽑는다.
+ *
+ * 저주가 겹치면 그 자리에서 발동하고 뽑기가 강제로 끝난다. 손패에 저주 1장을
+ * 들고 한 장 더 가는 순간이 이 시스템의 핵심이라, 그 시도와 결과를 따로 센다.
+ */
+export function pushDraw(state: GameState, rng: Rng): void {
+  const push = state.push;
+  if (!push || push.stopped) return;
+
+  const edged = onEdge(state.hand).length > 0;
+  if (edged) state.riskyDraws.taken += 1;
+
+  const card = drawOne(state, rng);
+  if (!card) {
+    push.stopped = true;
+    push.log.push('덱이 비었다');
+    return;
+  }
+
+  push.drawn += 1;
+  push.log.push(`${push.drawn}장째 — ${card.name}`);
+
+  const triggered = resolvePairs(state, rng);
+  if (triggered.length > 0) {
+    if (edged) state.riskyDraws.paired += 1;
+    for (const t of triggered) push.log.push(...t.lines);
+    push.stopped = true;
+    push.log.push('겹쳤다 — 뽑기가 여기서 끝난다');
+  }
+}
+
+/** 푸시 유어 럭을 접고 선택 루프로 돌아간다. */
+export function pushStop(state: GameState, rng: Rng): void {
+  const push = state.push;
+  if (!push) return;
+
+  state.log.push(`   ${push.drawn}장 뽑고 ${push.stopped ? '중단됨' : '멈췄다'}`);
+  for (const line of push.log) state.log.push(`   ${line}`);
+  state.push = null;
+
+  state.handSizes.push(state.hand.length);
   advance(state, rng);
 }
 
@@ -201,10 +299,7 @@ export function finishBattle(state: GameState, rng: Rng, hpBefore: number): void
  */
 function advance(state: GameState, rng: Rng): void {
   if (state.hp <= 0) {
-    state.hp = 0;
-    state.dead = true;
-    state.current = null;
-    state.log.push(`사망 — 파편 ${state.shards}/${state.escapeTarget}에서 멈췄다.`);
+    die(state);
     return;
   }
 

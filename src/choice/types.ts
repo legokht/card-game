@@ -1,6 +1,15 @@
 /** 카드 종류. 파편은 탈출 카운트를 올리므로 따로 센다. */
 export type CardKind = 'reward' | 'curse' | 'neutral' | 'shard';
 
+/**
+ * 저주 종류. 손패에 같은 종류가 2장 모이면 발동한다.
+ *
+ * - `doom` 파멸: 겹치면 즉사. 덱에 아주 적게만 존재한다.
+ * - `rot` 부패: 손패에 있는 동안 매 선택마다 체력이 깎인다. 겹치면 크게 터진다.
+ * - `erode` 침식: 겹치면 손패의 멀쩡한 카드가 저주로 바뀐다.
+ */
+export type CurseType = 'doom' | 'rot' | 'erode';
+
 export interface CardDef {
   id: string;
   name: string;
@@ -10,10 +19,12 @@ export interface CardDef {
   /** 전투에서 이번 턴 적의 공격을 막아내는 양. */
   block: number;
   /**
-   * 카드의 값어치. 전투가 없으므로 효과는 없고, "가장 값나가는 카드를 버린다"
-   * 같은 덱 참조형 선택지가 무엇을 집을지 정하는 데만 쓰인다.
+   * 카드의 값어치. "가장 값나가는 카드를 버린다" 같은 덱 참조형 선택지가
+   * 무엇을 집을지 정하는 데 쓰인다.
    */
   value: number;
+  /** 저주일 때만 있다. 손패에서 같은 종류가 2장 모이면 발동한다. */
+  curseType?: CurseType;
 }
 
 /** 덱에 실제로 들어 있는 카드 한 장. */
@@ -25,7 +36,13 @@ export interface CardInstance {
   value: number;
   attack: number;
   block: number;
+  curseType?: CurseType;
 }
+
+export type HandCondition =
+  | { type: 'handCurseAtLeast'; n: number }
+  | { type: 'handSizeAtLeast'; n: number }
+  | { type: 'handSizeAtMost'; n: number };
 
 export type Condition =
   | { type: 'countAtLeast'; kind: CardKind; n: number }
@@ -46,8 +63,10 @@ export type Condition =
  * - `cleanse`: 저주 제거·교체. 덱을 다듬는다
  * - `shard`: 탈출 카운트 증가. 반드시 명확한 대가를 동반한다
  * - `gain`: 보상 획득. 대가 없이는 안 된다
+ * - `draw`: 덱에서 손패로 가져온다. 저주가 겹칠 위험을 안는다
+ * - `purge`: 손패에서 저주를 버린다. 겹치기 전에 털어내는 자리
  */
-export type OptionKind = 'consume' | 'cleanse' | 'shard' | 'gain';
+export type OptionKind = 'consume' | 'cleanse' | 'shard' | 'gain' | 'draw' | 'purge';
 
 export type Effect =
   | { type: 'addSpecific'; cardId: string; count: number }
@@ -68,6 +87,20 @@ export type Effect =
   | { type: 'draw'; count: number; onCurse: Effect[]; onReward: Effect[] }
   /** 전투를 시작한다. 이기면 onWin이 적용된다. */
   | { type: 'battle'; enemyId: string; onWin: Effect[] }
+  /** 덱에서 손패로 가져온다. 저주가 겹치면 그 자리에서 발동한다. */
+  | { type: 'drawHand'; count: number }
+  /** 푸시 유어 럭. 플레이어가 멈출 때까지 한 장씩 뽑는다. */
+  | { type: 'pushLuck' }
+  /** 덱 맨 위 count장을 보고 그중 keep장만 손패로. 나머지는 덱으로 돌아간다. */
+  | { type: 'peek'; count: number; keep: number }
+  /** 손패에서 저주를 버린다. 종류를 지정하면 그 종류만. */
+  | { type: 'discardCurse'; count: number; curseType?: CurseType }
+  /** 손패를 전부 버리고 덱에서 다시 뽑는다. */
+  | { type: 'mulligan'; draw: number }
+  /** 손패 상태를 보는 조건부. */
+  | { type: 'ifHand'; when: HandCondition; then: Effect[]; otherwise: Effect[] }
+  /** 손패 장수에 비례해 회복한다. */
+  | { type: 'healPerHandCard'; amount: number }
   | { type: 'ifThen'; when: Condition; then: Effect[]; otherwise: Effect[] };
 
 /** 감정 축. 계산 없이도 어느 쪽인지 읽히게 하는 라벨. */
@@ -127,6 +160,8 @@ export interface ChoiceEvent {
   hasShard?: boolean;
   /** 덱 상태에 따라 결과가 달라지는 선택지. */
   readsDeck?: boolean;
+  /** 손패 상태를 보거나 손패를 건드리는 선택지. */
+  readsHand?: boolean;
 }
 
 /** 선택 한 번의 기록. */
@@ -158,10 +193,26 @@ export interface BattleRecord {
   hpLost: number;
 }
 
+/** 뽑기를 계속할지 멈출지 플레이어가 정하는 중인 상태. */
+export interface PushState {
+  /** 지금까지 이 판에서 뽑은 장수. */
+  drawn: number;
+  /** 저주가 겹쳐 강제로 끝났으면 true. */
+  stopped: boolean;
+  log: string[];
+}
+
 export interface GameState {
   /** 몇 번째 선택인지. 1부터. */
   step: number;
   deck: CardInstance[];
+  /**
+   * 상시 손패. 전투도 이걸 쓴다.
+   * 저주가 여기서 겹치면 발동하므로, 손패 관리가 곧 생존이다.
+   */
+  hand: CardInstance[];
+  /** 푸시 유어 럭 진행 중이면 채워진다. */
+  push: PushState | null;
   shards: number;
   escapeTarget: number;
   escaped: boolean;
@@ -183,4 +234,12 @@ export interface GameState {
   log: string[];
   records: ChoiceRecord[];
   battles: BattleRecord[];
+  /** 저주 종류별 발동 횟수. */
+  triggers: Record<CurseType, number>;
+  /** 사망 원인. 저주가 겹쳐 죽었으면 그 종류. */
+  causeOfDeath: string | null;
+  /** 매 선택 후의 손패 크기. 평균을 내기 위한 것. */
+  handSizes: number[];
+  /** 손패에 저주 1장을 들고 추가로 뽑은 횟수와, 그때 겹쳐버린 횟수. */
+  riskyDraws: { taken: number; paired: number };
 }

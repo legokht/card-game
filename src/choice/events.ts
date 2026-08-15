@@ -1,4 +1,4 @@
-import { CURSE_DAMAGE, REWARD_HEAL, SHARD_CURSE_COST } from './balance';
+import { CURSE_DAMAGE, REWARD_HEAL, ROT_BURST, SHARD_CURSE_COST } from './balance';
 import type { ChoiceEvent, Effect } from './types';
 
 /** 덱소비형의 기본 판정: 저주는 체력을 깎고, 보상은 조금 회복시킨다. */
@@ -891,6 +891,270 @@ export const EVENTS: ChoiceEvent[] = [
       tone: 'later',
       kind: 'cleanse',
       effects: [{ type: 'removeKind', kind: 'curse', count: 2 }],
+    },
+  },
+
+  /* ---------- 뽑기형 ---------- */
+  {
+    id: 'draw-well',
+    prompt: '샘물에 손을 담근다. 무언가 만져진다.',
+    readsHand: true,
+    red: {
+      text: '덱에서 2장을 손에 넣는다',
+      tone: 'greed',
+      kind: 'draw',
+      effects: [{ type: 'drawHand', count: 2 }],
+    },
+    blue: {
+      text: '손만 씻는다 — 손패의 저주 1장을 버린다',
+      tone: 'safe',
+      kind: 'purge',
+      effects: [{ type: 'discardCurse', count: 1 }],
+    },
+  },
+  {
+    id: 'gamble-draw',
+    prompt: '어둠 속으로 손을 뻗는다. 멈추는 건 당신 마음이다.',
+    readsHand: true,
+    red: {
+      text: '멈출 때까지 한 장씩 뽑는다 — 저주가 겹치면 즉시 중단',
+      tone: 'gamble',
+      kind: 'draw',
+      effects: [{ type: 'pushLuck' }],
+    },
+    blue: {
+      text: '손을 거둔다 — 보상 1장을 덱에 넣고 저주 1장',
+      tone: 'safe',
+      kind: 'gain',
+      effects: [
+        { type: 'addRandom', kind: 'reward', count: 1 },
+        { type: 'addRandom', kind: 'curse', count: 1 },
+      ],
+    },
+  },
+  {
+    id: 'scout',
+    prompt: '앞이 조금 보인다. 고를 수 있다.',
+    readsHand: true,
+    red: {
+      text: '덱 위 3장을 확인하고 1장만 가져온다',
+      tone: 'sure',
+      kind: 'draw',
+      effects: [{ type: 'peek', count: 3, keep: 1 }],
+    },
+    blue: {
+      text: '눈을 감고 2장을 집는다 — 뭐가 올지 모른다',
+      tone: 'gamble',
+      kind: 'draw',
+      effects: [{ type: 'drawHand', count: 2 }],
+    },
+  },
+  {
+    id: 'greedy-grab',
+    prompt: '한 움큼 쥘 수 있다. 얼마나 쥘지가 문제다.',
+    readsHand: true,
+    red: {
+      text: '덱에서 3장을 손에 넣는다 — 겹치면 그 자리에서 터진다',
+      tone: 'greed',
+      kind: 'draw',
+      effects: [{ type: 'drawHand', count: 3 }],
+    },
+    blue: {
+      text: '1장만 집고 체력을 추스른다 — 체력 +2',
+      tone: 'safe',
+      kind: 'draw',
+      effects: [
+        { type: 'drawHand', count: 1 },
+        { type: 'heal', amount: 2 },
+      ],
+    },
+  },
+
+  /* ---------- 버리기 / 정화형 ---------- */
+  {
+    id: 'shed',
+    prompt: '짐을 내려놓을 수 있는 자리다.',
+    readsHand: true,
+    red: {
+      text: '손패의 저주 1장을 버린다',
+      tone: 'safe',
+      kind: 'purge',
+      effects: [{ type: 'discardCurse', count: 1 }],
+    },
+    blue: {
+      text: '손패를 전부 덱으로 돌리고 3장을 새로 뽑는다',
+      tone: 'gamble',
+      kind: 'purge',
+      effects: [{ type: 'mulligan', draw: 3 }],
+    },
+  },
+  {
+    id: 'bloodletting',
+    prompt: '피를 흘려 저주를 씻어내는 의식이 있다.',
+    readsHand: true,
+    red: {
+      text: '손패의 저주 2장을 태운다 — 체력 -3',
+      tone: 'sure',
+      kind: 'purge',
+      effects: [
+        { type: 'discardCurse', count: 2 },
+        { type: 'damage', amount: 3 },
+      ],
+    },
+    blue: {
+      text: '의식을 거절한다 — 덱의 저주 1장을 지우고 보상 1장을 잃는다',
+      tone: 'later',
+      kind: 'cleanse',
+      effects: [
+        { type: 'removeKind', kind: 'curse', count: 1 },
+        { type: 'removeKind', kind: 'reward', count: 1 },
+      ],
+    },
+  },
+  {
+    id: 'exorcism',
+    prompt: '퇴마사가 손을 내민다. "가장 무서운 것부터."',
+    readsHand: true,
+    red: {
+      text: '손패의 파멸을 전부 버린다 — 체력 -2',
+      tone: 'safe',
+      kind: 'purge',
+      effects: [
+        { type: 'discardCurse', count: 9, curseType: 'doom' },
+        { type: 'damage', amount: 2 },
+      ],
+    },
+    blue: {
+      text: '손패의 부패를 전부 버린다 — 저주 1장을 덱에 받는다',
+      tone: 'sure',
+      kind: 'purge',
+      effects: [
+        { type: 'discardCurse', count: 9, curseType: 'rot' },
+        { type: 'addRandom', kind: 'curse', count: 1 },
+      ],
+    },
+  },
+  {
+    id: 'clean-slate',
+    prompt: '전부 내려놓고 다시 시작할 수 있다.',
+    readsHand: true,
+    red: {
+      text: '손패를 전부 덱으로 돌리고 5장을 새로 뽑는다',
+      tone: 'gamble',
+      kind: 'purge',
+      effects: [{ type: 'mulligan', draw: 5 }],
+    },
+    blue: {
+      text: '손패의 저주 1장을 버리고 값싼 2장을 덱에서 정리한다',
+      tone: 'sure',
+      kind: 'purge',
+      effects: [
+        { type: 'discardCurse', count: 1 },
+        { type: 'removeExtreme', end: 'lowest', count: 2 },
+      ],
+    },
+  },
+
+  /* ---------- 손패 참조형 ---------- */
+  {
+    id: 'hoarder',
+    prompt: '수집가가 당신의 손을 들여다본다.',
+    readsHand: true,
+    red: {
+      text: '손패에 저주가 3장 이상이면 보상 3장, 아니면 저주 1장',
+      tone: 'gamble',
+      kind: 'gain',
+      effects: [
+        {
+          type: 'ifHand',
+          when: { type: 'handCurseAtLeast', n: 3 },
+          then: [{ type: 'addRandom', kind: 'reward', count: 3 }],
+          otherwise: [{ type: 'addRandom', kind: 'curse', count: 1 }],
+        },
+      ],
+    },
+    blue: {
+      text: '손을 감춘다 — 손패의 저주 1장을 버리고 보상 1장을 잃는다',
+      tone: 'safe',
+      kind: 'purge',
+      effects: [
+        { type: 'discardCurse', count: 1 },
+        { type: 'removeKind', kind: 'reward', count: 1 },
+      ],
+    },
+  },
+  {
+    id: 'rest',
+    prompt: '잠시 쉰다. 들고 있는 것이 많을수록 든든하다.',
+    readsHand: true,
+    red: {
+      text: '손패 1장당 체력 +1',
+      tone: 'safe',
+      kind: 'gain',
+      effects: [{ type: 'healPerHandCard', amount: 1 }],
+    },
+    blue: {
+      text: '쉬지 않고 나아간다 — 덱에서 2장을 손에 넣는다',
+      tone: 'greed',
+      kind: 'draw',
+      effects: [{ type: 'drawHand', count: 2 }],
+    },
+  },
+  {
+    id: 'overload',
+    prompt: '손이 무겁다. 놓아야 할지도 모른다.',
+    readsHand: true,
+    red: {
+      text: '손패가 7장 이상이면 저주 2장을 버린다, 아니면 2장을 더 뽑는다',
+      tone: 'sure',
+      kind: 'purge',
+      effects: [
+        {
+          type: 'ifHand',
+          when: { type: 'handSizeAtLeast', n: 7 },
+          then: [{ type: 'discardCurse', count: 2 }],
+          otherwise: [{ type: 'drawHand', count: 2 }],
+        },
+      ],
+    },
+    blue: {
+      text: `버티고 본다 — 보상 2장을 덱에 넣고 체력 -${ROT_BURST}`,
+      tone: 'greed',
+      kind: 'gain',
+      effects: [
+        { type: 'addRandom', kind: 'reward', count: 2 },
+        { type: 'damage', amount: ROT_BURST },
+      ],
+    },
+  },
+  {
+    id: 'empty-hands',
+    prompt: '빈손일수록 가볍게 지나갈 수 있는 길이다.',
+    readsHand: true,
+    red: {
+      text: '손패가 3장 이하면 파편 1, 아니면 저주 1장',
+      tone: 'now',
+      kind: 'shard',
+      effects: [
+        {
+          type: 'ifHand',
+          when: { type: 'handSizeAtMost', n: 3 },
+          then: [
+            { type: 'shard', count: 1 },
+            { type: 'addRandom', kind: 'curse', count: 1 },
+          ],
+          otherwise: [{ type: 'addRandom', kind: 'curse', count: 1 }],
+        },
+      ],
+    },
+    blue: {
+      text: '짐을 지고 돌아간다 — 손패의 저주 1장을 버리고 체력 -1',
+      tone: 'later',
+      kind: 'purge',
+      effects: [
+        { type: 'discardCurse', count: 1 },
+        { type: 'damage', amount: 1 },
+      ],
     },
   },
 ];

@@ -52,6 +52,7 @@ body {
   grid-template-areas:
     'top top'
     'stage deck'
+    'hand deck'
     'history deck';
   gap: 16px;
   max-width: 900px;
@@ -300,6 +301,260 @@ b {
   margin: 0;
   font-size: 11px;
   color: var(--ember);
+}
+
+/* ---------- 상시 손패 ---------- */
+
+.hand {
+  grid-area: hand;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  background: var(--table);
+  border: 1px solid var(--edge);
+  border-radius: 3px;
+}
+
+.hand__head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.hand__label b {
+  font-family: var(--mono);
+  font-size: 16px;
+  color: var(--bone);
+  font-variant-numeric: tabular-nums;
+}
+
+.hand__rot {
+  color: #c58f6a;
+}
+
+/* "한 장 더 뽑으면 겹친다"를 계산 없이 알려주는 줄. */
+.edgewarns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.edgewarn {
+  padding: 3px 9px;
+  border-radius: 2px;
+  font-size: 11px;
+  border: 1px solid;
+}
+
+.edgewarn--doom {
+  color: #f0a0a0;
+  background: rgba(150, 30, 30, 0.22);
+  border-color: #b34a4a;
+}
+
+.edgewarn--rot {
+  color: #d8a878;
+  background: rgba(150, 90, 30, 0.18);
+  border-color: #a8763c;
+}
+
+.edgewarn--erode {
+  color: #c58fd6;
+  background: rgba(123, 74, 142, 0.22);
+  border-color: #8e5aa4;
+}
+
+.hcards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 7px;
+}
+
+.hcard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 74px;
+  padding: 8px 5px;
+  font-family: inherit;
+  color: var(--bone);
+  border: 1px solid;
+  border-radius: 3px;
+  cursor: default;
+  transition:
+    transform 0.1s ease,
+    box-shadow 0.1s ease;
+}
+
+.hcard--reward {
+  background: linear-gradient(170deg, #6b5a2c, #4a3d1d);
+  border-color: var(--reward);
+}
+
+.hcard--neutral {
+  background: linear-gradient(170deg, #464036, #332f28);
+  border-color: var(--neutral);
+}
+
+.hcard--shard {
+  background: linear-gradient(170deg, #2b4a44, #1e3833);
+  border-color: var(--shard);
+}
+
+/* 저주는 종류마다 색이 다르다. 무엇이 겹치려는지 알아야 하기 때문이다. */
+.hcard--curse {
+  border-style: dashed;
+  cursor: not-allowed;
+}
+
+.hcard--doom {
+  background: repeating-linear-gradient(135deg, #351317 0 7px, #2c1015 7px 14px);
+  border-color: #b34a4a;
+  color: #f0b0b0;
+}
+
+.hcard--rot {
+  background: repeating-linear-gradient(135deg, #33240f 0 7px, #2b1e0d 7px 14px);
+  border-color: #a8763c;
+  color: #dcb388;
+}
+
+.hcard--erode {
+  background: repeating-linear-gradient(135deg, #2a1b31 0 7px, #241729 7px 14px);
+  border-color: #8e5aa4;
+  color: #c9a8d8;
+}
+
+/*
+ * 같은 종류가 손에 딱 1장 있는 카드. 다음 한 장이 이걸 완성시킨다.
+ * 이 상태가 눈에 띄는 것이 이 화면에서 가장 중요한 일이다.
+ */
+.hcard.is-edge {
+  transform: translateY(-3px);
+  box-shadow:
+    0 0 0 2px currentColor,
+    0 4px 14px rgba(0, 0, 0, 0.5);
+}
+
+.hcard:not(.is-locked).hcard--reward,
+.hcard:not(.is-locked).hcard--neutral,
+.hcard:not(.is-locked).hcard--shard {
+  cursor: pointer;
+}
+
+.hcard:not(.is-locked):hover {
+  transform: translateY(-3px);
+}
+
+.hcard__name {
+  font-family: var(--serif);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.hcard__note {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  opacity: 0.85;
+}
+
+.hcard__stats {
+  display: flex;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.hcard__stats .atk {
+  color: #e8b27a;
+}
+
+.hcard__stats .blk {
+  color: #9fc0d4;
+}
+
+.hcards__empty {
+  margin: 0;
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--faint);
+}
+
+/* 덱에 남은 저주를 종류별로. 아래 목록은 손패까지 포함하므로 구분해서 적는다. */
+.cursekinds__label {
+  margin: -4px 0 -2px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--faint);
+}
+
+.cursekinds {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  font-size: 10.5px;
+}
+
+.cursekind {
+  padding: 2px 7px;
+  border-radius: 2px;
+  border: 1px solid;
+}
+
+.cursekind b {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.cursekind--doom {
+  color: #f0a0a0;
+  border-color: rgba(179, 74, 74, 0.6);
+}
+
+.cursekind--rot {
+  color: #d8a878;
+  border-color: rgba(168, 118, 60, 0.6);
+}
+
+.cursekind--erode {
+  color: #c58fd6;
+  border-color: rgba(142, 90, 164, 0.6);
+}
+
+/* ---------- 푸시 유어 럭 ---------- */
+
+.push {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.push__head {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 17px;
+  line-height: 1.5;
+}
+
+.push__risk {
+  color: #e8a05c;
+}
+
+.push__stop {
+  color: #e0796c;
+}
+
+.push__controls {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 /* ---------- 전투 ---------- */
@@ -944,6 +1199,7 @@ b {
     grid-template-areas:
       'top'
       'stage'
+      'hand'
       'deck'
       'history';
   }

@@ -1,4 +1,4 @@
-import type { CardDef, EnemyDef } from './types';
+import type { CardDef, CurseType, EnemyDef } from './types';
 
 /**
  * 선택 화면의 조정 가능한 수치를 전부 여기 모은다.
@@ -10,12 +10,14 @@ export const ESCAPE_TARGET = 5;
 /**
  * 시작 체력. 0이 되면 사망.
  *
- * 전투가 붙기 전에는 12였다. 전투가 체력을 추가로 먹으면서 12로는 무지성
- * 탈출률이 7%까지 떨어져(배우기 전에 죽는다) 18로 올렸다.
+ * 손패가 생기면서 크게 올렸다. 부패는 손패에 있는 동안 **매 선택마다** 체력을
+ * 갉아먹는데, 이 지속 피해가 30수쯤이면 누적 -30을 넘는다. 체력 18로는
+ * 관리를 하든 안 하든 똑같이 녹아서 신중한 플레이가 무지성과 구분되지 않았다
+ * (양쪽 다 11~12%).
  *
- * 자동 플레이 400판 기준: 무지성 탈출 14%, 덱 상태를 보고 고르는 플레이 63%.
+ * 자동 플레이 400판 기준: 무지성 32%, 손패를 관리하는 플레이 40%.
  */
-export const MAX_HP = 18;
+export const MAX_HP = 34;
 
 /**
  * 덱소비형 선택지에서 저주를 한 장 뽑을 때마다 깎이는 체력.
@@ -81,13 +83,10 @@ export const CARD_POOL: CardDef[] = [
   { id: 'blessed-cup', name: '축복의 잔', kind: 'reward', value: 6, attack: 2, block: 4 },
   { id: 'old-relic', name: '오래된 성물', kind: 'reward', value: 6, attack: 6, block: 2 },
 
-  // 저주 — 손패 자리만 차지하고 낼 수 없다
-  { id: 'rusty-nail', name: '녹슨 못', kind: 'curse', value: 1, attack: 0, block: 0 },
-  { id: 'cursed-doll', name: '저주받은 인형', kind: 'curse', value: 0, attack: 0, block: 0 },
-  { id: 'lead-weight', name: '납덩이', kind: 'curse', value: 1, attack: 0, block: 0 },
-  { id: 'plague-mark', name: '역병 자국', kind: 'curse', value: 0, attack: 0, block: 0 },
-  { id: 'leech', name: '거머리', kind: 'curse', value: 1, attack: 0, block: 0 },
-  { id: 'broken-mirror', name: '깨진 거울', kind: 'curse', value: 0, attack: 0, block: 0 },
+  // 저주 — 낼 수 없고, 손패에서 같은 종류가 2장 모이면 발동한다
+  { id: 'doom', name: '파멸', kind: 'curse', curseType: 'doom', value: 0, attack: 0, block: 0 },
+  { id: 'rot', name: '부패', kind: 'curse', curseType: 'rot', value: 1, attack: 0, block: 0 },
+  { id: 'erode', name: '침식', kind: 'curse', curseType: 'erode', value: 1, attack: 0, block: 0 },
 
   // 중립 — 약하지만 없는 것보다는 낫다
   { id: 'worn-dagger', name: '낡은 단검', kind: 'neutral', value: 2, attack: 2, block: 0 },
@@ -100,10 +99,80 @@ export const CARD_POOL: CardDef[] = [
   { id: 'shard', name: '탈출구 파편', kind: 'shard', value: 0, attack: 1, block: 0 },
 ];
 
+/* ---------- 손패와 저주 ---------- */
+
+/** 게임 시작 시 덱에서 손패로 가져오는 장수. 손패 상한은 없다. */
+export const HAND_START = 5;
+
+export interface CurseRule {
+  type: CurseType;
+  name: string;
+  /**
+   * 덱에 이 종류가 최대 몇 장까지 들어갈 수 있는지.
+   * 파멸은 즉사라서 아주 적게 유지해야 "1장만 보여도 긴장"이 성립한다.
+   */
+  deckMax: number;
+  /** 저주를 새로 넣을 때의 상대 가중치. */
+  weight: number;
+  /** 발동한 2장이 어디로 가는지. */
+  afterTrigger: 'deck' | 'gone';
+  description: string;
+}
+
+export const CURSE_RULES: Record<CurseType, CurseRule> = {
+  doom: {
+    type: 'doom',
+    name: '파멸',
+    deckMax: 3,
+    weight: 1,
+    // 즉사라 어디로 가든 의미가 없다.
+    afterTrigger: 'gone',
+    description: '2장 겹치면 즉사',
+  },
+  rot: {
+    type: 'rot',
+    name: '부패',
+    deckMax: 99,
+    weight: 2,
+    // 터지고 나면 사라진다. 대신 터질 때 아프다.
+    afterTrigger: 'gone',
+    description: `손패에 있는 동안 매 선택 체력 -${1}, 2장 겹치면 크게 터진다`,
+  },
+  erode: {
+    type: 'erode',
+    name: '침식',
+    deckMax: 99,
+    weight: 3,
+    // 덱으로 돌아가 다시 손에 잡힌다.
+    afterTrigger: 'deck',
+    description: '2장 겹치면 손패의 멀쩡한 카드가 저주로 바뀐다',
+  },
+};
+
+/** 손패의 부패 한 장당 매 선택 깎이는 체력. */
+export const ROT_DRAIN = 1;
+/** 부패 2장이 겹쳤을 때 한 번에 깎이는 체력. */
+export const ROT_BURST = 4;
+/** 침식 2장이 겹쳤을 때 저주로 바뀌는 손패 카드 수. */
+export const ERODE_CONVERT = 2;
+
+/** 저주를 새로 만들 때 종류를 고른다. 덱 상한을 넘는 종류는 제외된다. */
+export function curseWeights(deckCounts: Record<CurseType, number>): CurseType[] {
+  const out: CurseType[] = [];
+  for (const rule of Object.values(CURSE_RULES)) {
+    if (deckCounts[rule.type] >= rule.deckMax) continue;
+    for (let i = 0; i < rule.weight; i++) out.push(rule.type);
+  }
+  // 전부 상한이면 그나마 덜 치명적인 부패로 보낸다.
+  return out.length > 0 ? out : ['rot'];
+}
+
 /* ---------- 전투 ---------- */
 
-/** 전투 시작 시 덱에서 가져오는 손패 장수. */
-export const BATTLE_HAND_SIZE = 5;
+/**
+ * 전투는 따로 뽑지 않고 지금 들고 있는 상시 손패로 싸운다.
+ * 그래서 "전투 전에 손패를 갖춰놨느냐"가 곧 전투 준비다.
+ */
 
 /**
  * 적.

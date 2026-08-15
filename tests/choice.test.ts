@@ -4,7 +4,14 @@ import { choose, createGame, deckByKind, drawEvent, summarize } from '../src/cho
 import { canPlay } from '../src/choice/battle';
 import { applyEffects, countKind, resetUidCounter } from '../src/choice/effects';
 import { EVENTS } from '../src/choice/events';
-import { CARD_POOL, CURSE_DAMAGE, ESCAPE_TARGET, MAX_HP, STARTING_DECK } from '../src/choice/balance';
+import {
+  CARD_POOL,
+  CURSE_DAMAGE,
+  ESCAPE_TARGET,
+  HAND_START,
+  MAX_HP,
+  STARTING_DECK,
+} from '../src/choice/balance';
 import type { Effect, GameState, OptionKind } from '../src/choice/types';
 
 beforeEach(() => {
@@ -21,13 +28,22 @@ describe('선택지 데이터', () => {
   });
 
   it('네 유형이 각각 최소 4개씩 있다', () => {
-    const counts: Record<OptionKind, number> = { consume: 0, cleanse: 0, shard: 0, gain: 0 };
+    const counts: Record<OptionKind, number> = {
+      consume: 0,
+      cleanse: 0,
+      shard: 0,
+      gain: 0,
+      draw: 0,
+      purge: 0,
+    };
     for (const e of EVENTS) {
       counts[e.red.kind] += 1;
       counts[e.blue.kind] += 1;
     }
     for (const kind of Object.keys(counts) as OptionKind[]) {
-      expect(counts[kind], kind).toBeGreaterThanOrEqual(4);
+      // 손패 조작(뽑기·손패 정리)은 최소 3개, 기존 네 유형은 최소 4개.
+      const floor = kind === 'draw' || kind === 'purge' ? 3 : 4;
+      expect(counts[kind], kind).toBeGreaterThanOrEqual(floor);
     }
   });
 
@@ -44,7 +60,7 @@ describe('선택지 데이터', () => {
         (f) =>
           f.type === 'draw' ||
           f.type === 'battle' ||
-          (f.type === 'ifThen' && (draws(f.then) || draws(f.otherwise))),
+          ((f.type === 'ifThen' || f.type === 'ifHand') && (draws(f.then) || draws(f.otherwise))),
       );
     for (const e of EVENTS) {
       for (const side of ['red', 'blue'] as const) {
@@ -60,7 +76,8 @@ describe('선택지 데이터', () => {
         (f) =>
           (f.type === 'addRandom' && f.kind === 'curse') ||
           (f.type === 'battle' && addsCurse(f.onWin)) ||
-          (f.type === 'ifThen' && (addsCurse(f.then) || addsCurse(f.otherwise))),
+          ((f.type === 'ifThen' || f.type === 'ifHand') &&
+            (addsCurse(f.then) || addsCurse(f.otherwise))),
       );
     for (const e of EVENTS) {
       for (const side of ['red', 'blue'] as const) {
@@ -75,7 +92,7 @@ describe('선택지 데이터', () => {
         (f) =>
           f.type === 'shard' ||
           (f.type === 'battle' && shards(f.onWin)) ||
-          (f.type === 'ifThen' && (shards(f.then) || shards(f.otherwise))),
+          ((f.type === 'ifThen' || f.type === 'ifHand') && (shards(f.then) || shards(f.otherwise))),
       );
     for (const e of EVENTS) {
       for (const side of ['red', 'blue'] as const) {
@@ -110,7 +127,8 @@ describe('선택지 데이터', () => {
           f.type === 'removeKind' ||
           f.type === 'removeExtreme' ||
           f.type === 'transform' ||
-          (f.type === 'ifThen' && (shrinks(f.then) || shrinks(f.otherwise))),
+          f.type === 'discardCurse' ||
+          ((f.type === 'ifThen' || f.type === 'ifHand') && (shrinks(f.then) || shrinks(f.otherwise))),
       );
     const count = EVENTS.filter((e) => shrinks(e.red.effects) || shrinks(e.blue.effects)).length;
     expect(count / EVENTS.length).toBeGreaterThanOrEqual(0.5);
@@ -126,7 +144,7 @@ describe('선택지 데이터', () => {
     const walk = (fx: Effect[]): void => {
       for (const f of fx) {
         if (f.type === 'addSpecific') expect(ids.has(f.cardId)).toBe(true);
-        if (f.type === 'ifThen') {
+        if (f.type === 'ifThen' || f.type === 'ifHand') {
           walk(f.then);
           walk(f.otherwise);
         }
@@ -268,7 +286,9 @@ describe('선택 루프', () => {
     const state = createGame(new Rng('start'));
     expect(state.current).not.toBeNull();
     expect(state.step).toBe(1);
-    expect(state.deck).toHaveLength(STARTING_DECK.length);
+    // 시작 손패로 5장이 덱에서 빠져나간다.
+    expect(state.hand).toHaveLength(HAND_START);
+    expect(state.deck).toHaveLength(STARTING_DECK.length - HAND_START);
     expect(state.shards).toBe(0);
   });
 
@@ -381,8 +401,11 @@ describe('사망', () => {
     const rng = new Rng('death');
     const state = createGame(rng);
     expect(state.hp).toBe(MAX_HP);
+    // 최대 체력이 바뀌어도 치명적이도록, 한 번에 죽을 만큼만 남겨둔다.
+    state.hp = CURSE_DAMAGE;
 
     state.deck = [];
+    state.hand = [];
     apply(state, [{ type: 'addRandom', kind: 'curse', count: 10 }]);
     state.current = {
       id: 'test-lethal',
@@ -508,7 +531,7 @@ describe('덱 요약', () => {
     apply(state, [{ type: 'addRandom', kind: 'curse', count: 2 }]);
 
     const s = summarize(state);
-    expect(s.total).toBe(state.deck.length);
+    expect(s.total).toBe(state.deck.length + state.hand.length);
     expect(s.reward + s.curse + s.neutral + s.shard).toBe(s.total);
     expect(s.curse).toBe(2);
     expect(s.taint).toBeCloseTo(2 / s.total);
@@ -526,6 +549,7 @@ describe('덱 요약', () => {
   it('빈 덱에서도 오염도가 깨지지 않는다', () => {
     const state = createGame(new Rng('empty'));
     state.deck = [];
+    state.hand = [];
     const s = summarize(state);
     expect(s.total).toBe(0);
     expect(s.taint).toBe(0);
@@ -537,6 +561,6 @@ describe('덱 요약', () => {
 
     expect(groups.map((g) => g.kind)).toEqual(['reward', 'neutral', 'curse', 'shard']);
     const total = groups.reduce((sum, g) => sum + g.cards.reduce((s, c) => s + c.count, 0), 0);
-    expect(total).toBe(state.deck.length);
+    expect(total).toBe(state.deck.length + state.hand.length);
   });
 });

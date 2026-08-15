@@ -1,7 +1,7 @@
 import './choice.css';
 import { Rng } from './engine/rng';
 import { canPlay, flee, isOver, playCard } from './choice/battle';
-import { choose, createGame, finishBattle } from './choice/engine';
+import { choose, createGame, finishBattle, pushDraw, pushStop } from './choice/engine';
 import { render } from './choice/render';
 import type { GameState } from './choice/types';
 
@@ -32,6 +32,14 @@ function draw(): void {
     },
     onFlee: () => {
       flee(state, rng);
+      draw();
+    },
+    onPushDraw: () => {
+      pushDraw(state, rng);
+      draw();
+    },
+    onPushStop: () => {
+      pushStop(state, rng);
       draw();
     },
     onCloseBattle: () => {

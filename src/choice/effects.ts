@@ -1,6 +1,22 @@
 import type { Rng } from '../engine/rng';
 import { cardById, poolOf } from './balance';
-import type { CardInstance, CardKind, Condition, Effect, GameState } from './types';
+import {
+  addToHand,
+  discardCurse,
+  drawToHand,
+  makeCurse,
+  mulligan,
+  peek,
+  resolvePairs,
+} from './hand';
+import type {
+  CardInstance,
+  CardKind,
+  Condition,
+  Effect,
+  GameState,
+  HandCondition,
+} from './types';
 
 /**
  * 선택지가 덱에 가하는 조작.
@@ -31,6 +47,17 @@ function instantiate(defId: string): CardInstance {
 
 export function countKind(deck: CardInstance[], kind: CardKind): number {
   return deck.filter((c) => c.kind === kind).length;
+}
+
+export function evaluateHand(state: GameState, cond: HandCondition): boolean {
+  switch (cond.type) {
+    case 'handCurseAtLeast':
+      return countKind(state.hand, 'curse') >= cond.n;
+    case 'handSizeAtLeast':
+      return state.hand.length >= cond.n;
+    case 'handSizeAtMost':
+      return state.hand.length <= cond.n;
+  }
 }
 
 export function evaluate(state: GameState, cond: Condition): boolean {
@@ -99,11 +126,10 @@ export function applyEffect(state: GameState, effect: Effect, rng: Rng): string[
     }
 
     case 'addRandom': {
-      const pool = poolOf(effect.kind);
       const added: string[] = [];
       for (let i = 0; i < effect.count; i++) {
-        const def = rng.pick(pool);
-        const card = instantiate(def.id);
+        // 저주는 종류별 덱 상한(특히 파멸)을 지켜야 하므로 makeCurse를 거친다.
+        const card = effect.kind === 'curse' ? makeCurse(state, rng) : instantiate(rng.pick(poolOf(effect.kind)).id);
         state.deck.push(card);
         added.push(card.name);
       }
@@ -192,6 +218,36 @@ export function applyEffect(state: GameState, effect: Effect, rng: Rng): string[
       return [];
     }
 
+    /* ---------- 손패 조작 ---------- */
+
+    case 'drawHand':
+      return drawToHand(state, effect.count, rng);
+
+    case 'pushLuck':
+      // 실제 진행은 UI가 한 장씩 몰고 간다. 여기서는 모드만 연다.
+      state.push = { drawn: 0, stopped: false, log: [] };
+      return ['한 장씩 뽑는다 — 멈출 때까지'];
+
+    case 'peek':
+      return peek(state, effect.count, effect.keep, rng);
+
+    case 'discardCurse':
+      return discardCurse(state, effect.count, effect.curseType);
+
+    case 'mulligan':
+      return mulligan(state, effect.draw, rng);
+
+    case 'healPerHandCard': {
+      const gained = state.hand.length * effect.amount;
+      if (gained === 0) return ['손패가 비어 회복이 없다'];
+      return applyEffect(state, { type: 'heal', amount: gained }, rng);
+    }
+
+    case 'ifHand': {
+      const branch = evaluateHand(state, effect.when) ? effect.then : effect.otherwise;
+      return branch.flatMap((e) => applyEffect(state, e, rng));
+    }
+
     case 'ifThen': {
       const branch = evaluate(state, effect.when) ? effect.then : effect.otherwise;
       return branch.flatMap((e) => applyEffect(state, e, rng));
@@ -201,6 +257,18 @@ export function applyEffect(state: GameState, effect: Effect, rng: Rng): string[
 
 export function applyEffects(state: GameState, effects: Effect[], rng: Rng): string[] {
   return effects.flatMap((e) => applyEffect(state, e, rng));
+}
+
+/** 손패로 바로 넣는 보상. 선택지에서 쓴다. */
+export function grantToHand(
+  state: GameState,
+  kind: 'reward' | 'neutral',
+  count: number,
+  rng: Rng,
+): string[] {
+  const lines = addToHand(state, kind, count, rng);
+  for (const t of resolvePairs(state, rng)) lines.push(...t.lines);
+  return lines;
 }
 
 /** 초기 덱을 만든다. */
