@@ -102,6 +102,68 @@ export interface ChoiceOption {
   effects: Effect[];
 }
 
+/* ---------- 짝 규칙용 태그 ---------- */
+
+/** 무엇을 만지는가. */
+export type OptionAxis = 'deck' | 'field' | 'draw' | 'hp';
+
+/**
+ * 미래에 투자하는가(덱 구성), 지금을 해결하는가(필드·뽑기·체력).
+ * 대립 짝은 이 축이 서로 다른 둘을 붙여 만든다.
+ */
+export type OptionDir = 'future' | 'now';
+
+/** 플레이어에게 돌아오는 이득의 크기. 손해는 빼지 않는다 — 유혹의 세기다. */
+export type OptionValue = 'low' | 'mid' | 'high';
+
+export type Rarity = 'common' | 'uncommon' | 'rare' | 'ultra';
+
+/**
+ * 한 화면에 뜬 두 선택지의 관계.
+ *
+ * - `clash`  대립: 미래 투자 vs 현재 해결. 이 게임의 메인 딜레마
+ * - `kin`    동류: 같은 방향끼리. 방향이 아니라 세부를 고른다
+ * - `crisis` 위기: 양쪽 다 손해. 덜 나쁜 쪽을 고른다
+ */
+export type PairType = 'clash' | 'kin' | 'crisis';
+
+/** 풀에 들어 있는 선택지 하나. 짝을 모르는 채로도 홀로 서야 한다. */
+export interface OptionDef {
+  id: string;
+  text: string;
+  tone: Tone;
+  axis: OptionAxis;
+  dir: OptionDir;
+  value: OptionValue;
+  rarity: Rarity;
+  /** 이득 없이 손해만 있는 선택지. 위기 짝은 이 풀에서만 만든다. */
+  crisis?: boolean;
+  effects: Effect[];
+}
+
+/** 실제로 화면에 뜨는 한 쌍. 매번 규칙에 맞게 조합된다. */
+export interface ChoicePair {
+  type: PairType;
+  prompt: string;
+  red: OptionDef;
+  blue: OptionDef;
+}
+
+/** 고밸류 선택지가 떴을 때 반대편에 무엇이 있었고, 그것을 골랐는지. */
+export interface HighValueSighting {
+  step: number;
+  /** 고밸류 쪽. */
+  id: string;
+  text: string;
+  rarity: Rarity;
+  /** 맞은편. */
+  oppositeId: string;
+  oppositeValue: OptionValue;
+  oppositeText: string;
+  /** 플레이어가 고밸류 쪽을 실제로 골랐는가. */
+  taken: boolean;
+}
+
 export interface ChoiceEvent {
   id: string;
   /** 상황 한 줄. 없으면 선택지 두 개만 보여준다. */
@@ -160,10 +222,22 @@ export interface GameState {
   maxHp: number;
   dead: boolean;
 
-  /** 지금 제시된 선택지. 탈출하면 null. */
-  current: ChoiceEvent | null;
-  /** 최근에 나온 이벤트 id들. 바로 다시 뽑히지 않게 하는 용도. */
+  /** 지금 제시된 짝. 탈출하면 null. */
+  current: ChoicePair | null;
+  /** 최근에 나온 선택지 id들. 바로 다시 뽑히지 않게 하는 용도. */
   recent: string[];
+
+  /** 짝 유형이 실제로 몇 번 떴는지. 목표 비율과 대조한다. */
+  pairStats: Record<PairType, number>;
+  /** 희소도별 등장 횟수. 낱개 선택지 기준이라 짝 수의 두 배가 된다. */
+  rarityStats: Record<Rarity, number>;
+  /**
+   * 고밸류 선택지가 떴을 때의 기록.
+   *
+   * 반대편이 무엇이었는지, 그리고 플레이어가 그 고밸류를 실제로 골랐는지.
+   * "고밸류 맞은편은 반드시 강한 유혹"이 지켜지는지 보는 값이다.
+   */
+  highValueLog: HighValueSighting[];
 
   log: string[];
   records: ChoiceRecord[];

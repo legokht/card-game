@@ -14,7 +14,7 @@ import {
 } from '../src/choice/field';
 import { choose, createGame, pushDraw, pushStop } from '../src/choice/engine';
 import { applyEffects, countKind, resetUidCounter } from '../src/choice/effects';
-import { EVENTS } from '../src/choice/events';
+import { OPTION_POOL } from '../src/choice/options';
 import {
   CURSE_RULES,
   ERODE_CONVERT,
@@ -22,7 +22,14 @@ import {
   ROT_BURST,
   ROT_DRAIN,
 } from '../src/choice/balance';
-import type { CardInstance, CurseType, Effect, GameState, OptionKind } from '../src/choice/types';
+import type {
+  CardInstance,
+  ChoicePair,
+  CurseType,
+  Effect,
+  GameState,
+  OptionDef,
+} from '../src/choice/types';
 
 beforeEach(() => {
   resetUidCounter();
@@ -52,6 +59,17 @@ function plain(name = '은빛 검'): CardInstance {
   };
 }
 
+
+/** 풀에서 id로 골라 짝을 세운다. 특정 선택지를 물려야 하는 테스트용. */
+function pairFrom(redId: string, blueId: string): ChoicePair {
+  const find = (id: string): OptionDef => {
+    const o = OPTION_POOL.find((x) => x.id === id);
+    if (!o) throw new Error(`풀에 없는 선택지: ${id}`);
+    return o;
+  };
+  return { type: 'kin', prompt: '', red: find(redId), blue: find(blueId) };
+}
+
 describe('시작 필드', () => {
   it('필드는 비어서 시작한다 — 오직 선택지로만 채워진다', () => {
     const state = createGame(new Rng('start'));
@@ -67,7 +85,7 @@ describe('시작 필드', () => {
     expect(before.length).toBeGreaterThan(0);
 
     // 필드를 건드리지 않는 선택지를 골라 유지되는지 본다.
-    state.current = EVENTS.find((e) => e.id === 'debt')!;
+    state.current = pairFrom('debt-red', 'debt-blue');
     choose(state, 'blue', rng);
 
     for (const id of before) expect(state.field.some((c) => c.uid === id)).toBe(true);
@@ -223,7 +241,7 @@ describe('부패의 지속 피해', () => {
     const rng = new Rng('drain-loop');
     const state = createGame(rng);
     state.field = [curse('rot')];
-    state.current = EVENTS.find((e) => e.id === 'debt')!;
+    state.current = pairFrom('debt-red', 'debt-blue');
     const hp = state.hp;
 
     choose(state, 'blue', rng);
@@ -334,7 +352,7 @@ describe('푸시 유어 럭', () => {
   function openPush(seed: string): { state: GameState; rng: Rng } {
     const rng = new Rng(seed);
     const state = createGame(rng);
-    state.current = EVENTS.find((e) => e.id === 'gamble-draw')!;
+    state.current = pairFrom('gamble-draw-red', 'gamble-draw-blue');
     choose(state, 'red', rng);
     return { state, rng };
   }
@@ -403,7 +421,7 @@ describe('기록', () => {
     const rng = new Rng('cause');
     const state = createGame(rng);
     state.field = [curse('doom'), curse('doom')];
-    state.current = EVENTS.find((e) => e.id === 'debt')!;
+    state.current = pairFrom('debt-red', 'debt-blue');
 
     choose(state, 'blue', rng);
 
@@ -429,18 +447,19 @@ describe('기록', () => {
 });
 
 describe('선택지 배합', () => {
-  it('뽑기형과 제거형이 각각 4개 이상 있다', () => {
-    const counts: Partial<Record<OptionKind, number>> = {};
-    for (const e of EVENTS) {
-      counts[e.red.kind] = (counts[e.red.kind] ?? 0) + 1;
-      counts[e.blue.kind] = (counts[e.blue.kind] ?? 0) + 1;
-    }
-    expect(counts.draw ?? 0).toBeGreaterThanOrEqual(4);
-    expect(counts.purge ?? 0).toBeGreaterThanOrEqual(4);
+  it('뽑기와 필드 정리가 각각 충분히 많다', () => {
+    const by = (a: string) => OPTION_POOL.filter((o) => o.axis === a).length;
+    expect(by('draw')).toBeGreaterThanOrEqual(4);
+    expect(by('field')).toBeGreaterThanOrEqual(4);
   });
 
-  it('필드를 건드리는 선택지는 readsField로 표시돼 있다', () => {
-    const touchesField = (fx: Effect[]): boolean =>
+  it('필드를 바꾸는 선택지는 축이 필드나 뽑기나 체력이다', () => {
+    // 예전에는 readsField 플래그를 손으로 붙였고, 빠뜨리기 쉬웠다. 이제는 축
+    // 태그가 그 역할을 하므로 효과와 태그가 어긋나지 않는지만 본다.
+    //
+    // 읽기(ifField)와 바꾸기는 구분한다. "필드에 저주가 3장 이상이면 보상 3장"은
+    // 필드를 보고 판단하지만 바꾸는 것은 덱이므로 미래에 투자하는 선택지다.
+    const changesField = (fx: Effect[]): boolean =>
       fx.some(
         (f) =>
           f.type === 'drawField' ||
@@ -450,13 +469,13 @@ describe('선택지 배합', () => {
           f.type === 'purgeRandom' ||
           f.type === 'purgeAll' ||
           f.type === 'healPerFieldCard' ||
-          f.type === 'ifField' ||
-          (f.type === 'ifThen' && (touchesField(f.then) || touchesField(f.otherwise))),
+          ((f.type === 'ifThen' || f.type === 'ifField') &&
+            (changesField(f.then) || changesField(f.otherwise))),
       );
 
-    for (const e of EVENTS) {
-      if (touchesField(e.red.effects) || touchesField(e.blue.effects)) {
-        expect(e.readsField, e.id).toBe(true);
+    for (const o of OPTION_POOL) {
+      if (changesField(o.effects)) {
+        expect(['draw', 'field', 'hp'], o.id).toContain(o.axis);
       }
     }
   });

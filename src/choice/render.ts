@@ -4,10 +4,11 @@ import { curseCounts, onEdge } from './field';
 import type {
   CardInstance,
   CardKind,
-  ChoiceOption,
   CurseType,
   GameState,
-  OptionKind,
+  OptionAxis,
+  OptionDef,
+  PairType,
   Tone,
 } from './types';
 
@@ -35,16 +36,26 @@ const TONE_LABEL: Record<Tone, string> = {
 };
 
 /**
- * 어떤 종류의 선택인지 배지로 알려준다.
- * 뽑기(필드가 커진다)와 제거(필드가 줄어든다)가 특히 먼저 읽혀야 한다.
+ * 무엇을 만지는 선택인지 배지로 알려준다.
+ * 뽑기(필드가 커진다)와 필드 정리(필드가 줄어든다)가 특히 먼저 읽혀야 한다.
  */
-const OPTION_LABEL: Record<OptionKind, string> = {
+const AXIS_LABEL: Record<OptionAxis, string> = {
   draw: '뽑기',
-  purge: '필드 정리',
-  deck: '덱 조작',
-  field: '필드 참조',
-  shard: '탈출',
-  gain: '획득',
+  field: '필드',
+  deck: '덱',
+  hp: '체력',
+};
+
+/**
+ * 이 짝이 무슨 판단인지 한 단어로.
+ *
+ * 유형별 비율이 아니라 짝의 관계가 판단의 성격을 정하므로, 그 관계를
+ * 화면에서도 이름 붙여 준다.
+ */
+const PAIR_LABEL: Record<PairType, string> = {
+  clash: '갈림길',
+  kin: '저울질',
+  crisis: '막다른 길',
 };
 
 const KIND_LABEL: Record<CardKind, string> = {
@@ -54,12 +65,15 @@ const KIND_LABEL: Record<CardKind, string> = {
   shard: '파편',
 };
 
-function optionButton(side: 'red' | 'blue', option: ChoiceOption): string {
+function optionButton(side: 'red' | 'blue', option: OptionDef): string {
+  // 매우 희귀 선택지는 눈에 띄어야 한다 — 자주 오지 않는 기회라는 신호다.
+  const rare = option.rarity === 'ultra' || option.rarity === 'rare';
   return `
-    <button class="pick pick--${side}" data-side="${side}">
+    <button class="pick pick--${side}${rare ? ' pick--rare' : ''}" data-side="${side}">
       <span class="pick__tags">
         <span class="pick__tone">${TONE_LABEL[option.tone]}</span>
-        <span class="pick__kind pick__kind--${option.kind}">${OPTION_LABEL[option.kind]}</span>
+        <span class="pick__kind pick__kind--${option.axis}">${AXIS_LABEL[option.axis]}</span>
+        ${rare ? `<span class="pick__rarity">${option.rarity === 'ultra' ? '매우 희귀' : '희귀'}</span>` : ''}
       </span>
       <span class="pick__text">${option.text}</span>
     </button>`;
@@ -294,12 +308,14 @@ export function render(root: HTMLElement, state: GameState, handlers: Handlers):
                }회 · 필드 ${state.field.length}장 · 덱 ${state.deck.length}장 남음</span>
              </div>`
           : `
-            <p class="prompt">${event?.prompt ?? ''}</p>
+            <p class="prompt">
+              <span class="prompt__pair prompt__pair--${event!.type}">${PAIR_LABEL[event!.type]}</span>
+              ${event!.prompt}
+            </p>
             <div class="picks">
               ${optionButton('red', event!.red)}
               ${optionButton('blue', event!.blue)}
             </div>
-            ${event?.readsDeck ? `<p class="tag">이 선택은 지금 덱 상태를 읽는다</p>` : ''}
           `
       }
       ${state.push ? '' : recentChanges(state)}

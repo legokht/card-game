@@ -1,17 +1,28 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { Rng } from '../src/engine/rng';
-import { choose, createGame, deckByKind, drawEvent, summarize } from '../src/choice/engine';
+import { choose, createGame, deckByKind, drawPair, summarize } from '../src/choice/engine';
 import { applyEffects, countKind, resetUidCounter } from '../src/choice/effects';
-import { EVENTS } from '../src/choice/events';
+import { OPTION_POOL } from '../src/choice/options';
+import { composePair, crisisChance } from '../src/choice/pairing';
 import {
   CARD_POOL,
+  CRISIS_AT_ESCAPE,
+  CRISIS_AT_START,
   CURSE_RULES,
   ESCAPE_TARGET,
   FIELD_START,
   MAX_HP,
+  PAIR_MIX,
   STARTING_DECK,
 } from '../src/choice/balance';
-import type { Effect, GameState, OptionKind } from '../src/choice/types';
+import type {
+  ChoicePair,
+  Effect,
+  GameState,
+  OptionDef,
+  PairType,
+  Tone,
+} from '../src/choice/types';
 
 beforeEach(() => {
   resetUidCounter();
@@ -21,145 +32,96 @@ function apply(state: GameState, effects: Effect[], seed = 'fx'): string[] {
   return applyEffects(state, effects, new Rng(seed));
 }
 
-describe('선택지 데이터', () => {
-  it('20개 이상 있다', () => {
-    expect(EVENTS.length).toBeGreaterThanOrEqual(20);
+const pairId = (p: ChoicePair) => `${p.red.id}|${p.blue.id}`;
+const optionIds = (p: ChoicePair) => [p.red.id, p.blue.id];
+
+/** 테스트가 특정 상황을 직접 세울 때 쓰는 최소한의 짝. */
+function testPair(
+  red: { id: string; tone: Tone; effects: Effect[] },
+  blue: { id: string; tone: Tone; effects: Effect[] },
+): ChoicePair {
+  const opt = (o: { id: string; tone: Tone; effects: Effect[] }): OptionDef => ({
+    id: o.id,
+    text: '',
+    tone: o.tone,
+    axis: 'deck',
+    dir: 'future',
+    value: 'low',
+    rarity: 'common',
+    effects: o.effects,
+  });
+  return { type: 'kin', prompt: '', red: opt(red), blue: opt(blue) };
+}
+
+describe('선택지 풀', () => {
+  it('충분히 많고 id가 겹치지 않는다', () => {
+    expect(OPTION_POOL.length).toBeGreaterThanOrEqual(60);
+    expect(new Set(OPTION_POOL.map((o) => o.id)).size).toBe(OPTION_POOL.length);
   });
 
-  it('네 유형이 각각 최소 4개씩 있다', () => {
-    const counts: Record<OptionKind, number> = {
-      draw: 0,
-      purge: 0,
-      deck: 0,
-      field: 0,
-      shard: 0,
-      gain: 0,
-    };
-    for (const e of EVENTS) {
-      counts[e.red.kind] += 1;
-      counts[e.blue.kind] += 1;
-    }
-    // 스펙이 요구하는 네 유형.
-    for (const kind of ['draw', 'purge', 'deck', 'field'] as OptionKind[]) {
-      expect(counts[kind], kind).toBeGreaterThanOrEqual(4);
-    }
-  });
-
-  it('뽑기형이 전체의 30% 이상이다', () => {
-    // 뽑기가 16%였을 때는 "덱을 만지작거리기만 하고 필드는 안 늘어난다"가 됐다.
-    // 필드가 주인공이므로 뽑기는 세 번에 한 번은 눌릴 수 있어야 한다.
-    const draws =
-      EVENTS.filter((e) => e.red.kind === 'draw').length +
-      EVENTS.filter((e) => e.blue.kind === 'draw').length;
-    expect(draws / (EVENTS.length * 2)).toBeGreaterThanOrEqual(0.3);
-  });
-
-  it('덱 조작형이 절반을 넘지 않는다', () => {
-    // 필드가 주인공인데 덱만 만지는 선택지가 과반이면 필드가 거의 안 움직인다.
-    const deckOnly =
-      EVENTS.filter((e) => e.red.kind === 'deck').length +
-      EVENTS.filter((e) => e.blue.kind === 'deck').length;
-    expect(deckOnly / (EVENTS.length * 2)).toBeLessThan(0.5);
-  });
-
-  it('뽑기형은 실제로 덱에서 필드로 가져온다', () => {
-    const draws = (fx: Effect[]): boolean =>
-      fx.some(
-        (f) =>
-          f.type === 'drawField' ||
-          f.type === 'pushLuck' ||
-          f.type === 'peek' ||
-          ((f.type === 'ifThen' || f.type === 'ifField') && (draws(f.then) || draws(f.otherwise))),
-      );
-    for (const e of EVENTS) {
-      for (const side of ['red', 'blue'] as const) {
-        if (e[side].kind === 'draw') expect(draws(e[side].effects), `${e.id}.${side}`).toBe(true);
-      }
+  it('모든 선택지가 효과와 문구를 갖는다', () => {
+    for (const o of OPTION_POOL) {
+      expect(o.effects.length, o.id).toBeGreaterThan(0);
+      expect(o.text.length, o.id).toBeGreaterThan(0);
     }
   });
 
-  it('제거형은 실제로 필드를 비운다', () => {
-    const purges = (fx: Effect[]): boolean =>
-      fx.some(
-        (f) =>
-          f.type === 'purgeCurse' ||
-          f.type === 'purgeRandom' ||
-          f.type === 'purgeAll' ||
-          ((f.type === 'ifThen' || f.type === 'ifField') && (purges(f.then) || purges(f.otherwise))),
-      );
-    for (const e of EVENTS) {
-      for (const side of ['red', 'blue'] as const) {
-        if (e[side].kind === 'purge') expect(purges(e[side].effects), `${e.id}.${side}`).toBe(true);
-      }
+  it('문구가 홀로 선다 — 짝을 모르는 채로 읽혀야 한다', () => {
+    // 짝이 매번 조합되므로, 없어진 상황 문구를 가리키는 지시어가 남아 있으면
+    // 무슨 소린지 알 수 없는 선택지가 된다.
+    for (const o of OPTION_POOL) {
+      expect(o.text, o.id).not.toMatch(/이 (틈|문|길|굴|다리)|그 (틈|문|길)|여기서 (지나|건너)/);
     }
   });
 
-  it('파편형은 반드시 저주를 대가로 치른다', () => {
-    // 전투가 없으니 보상 상실은 실질 비용이 아니다. 저주만이 나중에 물어뜯는다.
-    const addsCurse = (fx: Effect[]): boolean =>
-      fx.some(
-        (f) =>
-          (f.type === 'addRandom' && f.kind === 'curse') ||
-          ((f.type === 'ifThen' || f.type === 'ifField') &&
-            (addsCurse(f.then) || addsCurse(f.otherwise))),
-      );
-    for (const e of EVENTS) {
-      for (const side of ['red', 'blue'] as const) {
-        if (e[side].kind === 'shard') expect(addsCurse(e[side].effects), `${e.id}.${side}`).toBe(true);
-      }
+  it('방향은 축에서 따라 나온다 — 덱은 미래, 나머지는 현재', () => {
+    for (const o of OPTION_POOL) {
+      expect(o.dir, o.id).toBe(o.axis === 'deck' ? 'future' : 'now');
     }
   });
 
-  it('파편형은 반드시 탈출 카운트를 올린다', () => {
-    const shards = (fx: Effect[]): boolean =>
+  it('위기 선택지는 이득이 없다', () => {
+    const gains = (fx: Effect[]): boolean =>
       fx.some(
         (f) =>
           f.type === 'shard' ||
-          ((f.type === 'ifThen' || f.type === 'ifField') && (shards(f.then) || shards(f.otherwise))),
+          f.type === 'purgeAll' ||
+          f.type === 'purgeCurse' ||
+          f.type === 'heal' ||
+          f.type === 'healPerFieldCard' ||
+          (f.type === 'addRandom' && f.kind === 'reward') ||
+          ((f.type === 'ifThen' || f.type === 'ifField') && (gains(f.then) || gains(f.otherwise))),
       );
-    for (const e of EVENTS) {
-      for (const side of ['red', 'blue'] as const) {
-        if (e[side].kind === 'shard') expect(shards(e[side].effects), `${e.id}.${side}`).toBe(true);
+    const crisis = OPTION_POOL.filter((o) => o.crisis);
+    expect(crisis.length).toBeGreaterThanOrEqual(6);
+    for (const o of crisis) expect(gains(o.effects), o.id).toBe(false);
+  });
+
+  it('네 축이 모두 존재하고, 뽑기와 필드가 충분히 많다', () => {
+    const by = (a: string) => OPTION_POOL.filter((o) => o.axis === a).length;
+    for (const a of ['deck', 'field', 'draw', 'hp']) expect(by(a), a).toBeGreaterThanOrEqual(1);
+    expect(by('draw')).toBeGreaterThanOrEqual(15);
+    expect(by('field')).toBeGreaterThanOrEqual(15);
+  });
+
+  it('매우 희귀 등급에 대형 제거와 파편이 들어 있다', () => {
+    const ultra = OPTION_POOL.filter((o) => o.rarity === 'ultra');
+    const flat = (fx: Effect[]): Effect[] =>
+      fx.flatMap((f) =>
+        f.type === 'ifThen' || f.type === 'ifField' ? [f, ...flat(f.then), ...flat(f.otherwise)] : [f],
+      );
+    const hasShard = ultra.some((o) => flat(o.effects).some((f) => f.type === 'shard'));
+    const hasSweep = ultra.some((o) => flat(o.effects).some((f) => f.type === 'purgeAll'));
+    expect(hasShard).toBe(true);
+    expect(hasSweep).toBe(true);
+
+    // 반대로, 파편과 전체 정리가 흔한 등급에 새어 나가 있으면 안 된다.
+    for (const o of OPTION_POOL) {
+      const fx = flat(o.effects);
+      if (fx.some((f) => f.type === 'shard' || f.type === 'purgeAll')) {
+        expect(o.rarity, o.id).toBe('ultra');
       }
     }
-  });
-
-  it('id가 겹치지 않는다', () => {
-    expect(new Set(EVENTS.map((e) => e.id)).size).toBe(EVENTS.length);
-  });
-
-  it('모든 선택지는 양쪽 다 효과가 있다 — 무상으로 좋기만 한 쪽은 없다', () => {
-    for (const e of EVENTS) {
-      expect(e.red.effects.length, `${e.id} 빨강`).toBeGreaterThan(0);
-      expect(e.blue.effects.length, `${e.id} 파랑`).toBeGreaterThan(0);
-      expect(e.red.text.length).toBeGreaterThan(0);
-      expect(e.blue.text.length).toBeGreaterThan(0);
-    }
-  });
-
-  it('양쪽의 감정 축이 서로 다르다', () => {
-    for (const e of EVENTS) {
-      expect(e.red.tone, `${e.id}`).not.toBe(e.blue.tone);
-    }
-  });
-
-  it('덱을 줄이는 선택지가 충분히 많다', () => {
-    const shrinks = (fx: Effect[]): boolean =>
-      fx.some(
-        (f) =>
-          f.type === 'removeKind' ||
-          f.type === 'removeExtreme' ||
-          f.type === 'transform' ||
-          f.type === 'purgeCurse' ||
-          ((f.type === 'ifThen' || f.type === 'ifField') && (shrinks(f.then) || shrinks(f.otherwise))),
-      );
-    const count = EVENTS.filter((e) => shrinks(e.red.effects) || shrinks(e.blue.effects)).length;
-    expect(count / EVENTS.length).toBeGreaterThanOrEqual(0.5);
-  });
-
-  it('파편형과 필드 참조형이 모두 존재한다', () => {
-    expect(EVENTS.filter((e) => e.hasShard).length).toBeGreaterThanOrEqual(4);
-    expect(EVENTS.filter((e) => e.readsField).length).toBeGreaterThanOrEqual(4);
   });
 
   it('참조하는 카드 id가 전부 풀에 있다', () => {
@@ -173,11 +135,87 @@ describe('선택지 데이터', () => {
         }
       }
     };
-    for (const e of EVENTS) {
-      walk(e.red.effects);
-      walk(e.blue.effects);
-    }
+    for (const o of OPTION_POOL) walk(o.effects);
     for (const id of STARTING_DECK) expect(ids.has(id)).toBe(true);
+  });
+});
+
+describe('짝 규칙', () => {
+  it('대립 짝은 미래와 현재를 마주 세운다', () => {
+    const rng = new Rng('clash');
+    const state = createGame(rng);
+    for (let i = 0; i < 200; i++) {
+      const pair = composePair(state, rng, 'clash');
+      expect(pair.red.dir, `${pair.red.id} vs ${pair.blue.id}`).not.toBe(pair.blue.dir);
+    }
+  });
+
+  it('동류 짝은 같은 방향끼리 붙인다', () => {
+    const rng = new Rng('kin');
+    const state = createGame(rng);
+    for (let i = 0; i < 200; i++) {
+      const pair = composePair(state, rng, 'kin');
+      expect(pair.red.dir).toBe(pair.blue.dir);
+    }
+  });
+
+  it('위기 짝은 양쪽 다 손해다', () => {
+    const rng = new Rng('crisis');
+    const state = createGame(rng);
+    for (let i = 0; i < 200; i++) {
+      const pair = composePair(state, rng, 'crisis');
+      expect(pair.red.crisis, pair.red.id).toBe(true);
+      expect(pair.blue.crisis, pair.blue.id).toBe(true);
+    }
+  });
+
+  it('고밸류는 저밸류와 짝지어지지 않는다', () => {
+    // 이 규칙이 없으면 "저주를 전부 지운다" 맞은편에 시시한 것이 놓여
+    // 딜레마가 아니라 무료 보상이 된다.
+    const rng = new Rng('pairing');
+    const state = createGame(rng);
+    for (let i = 0; i < 3000; i++) {
+      const pair = composePair(state, rng);
+      const { red, blue } = pair;
+      if (red.value === 'high') expect(blue.value, `${red.id} ↔ ${blue.id}`).not.toBe('low');
+      if (blue.value === 'high') expect(red.value, `${blue.id} ↔ ${red.id}`).not.toBe('low');
+      if (red.rarity === 'ultra') expect(blue.value, `${red.id} ↔ ${blue.id}`).toBe('high');
+      if (blue.rarity === 'ultra') expect(red.value, `${blue.id} ↔ ${red.id}`).toBe('high');
+    }
+  });
+
+  it('같은 선택지가 자기 자신과 붙지 않는다', () => {
+    const rng = new Rng('self');
+    const state = createGame(rng);
+    for (let i = 0; i < 500; i++) {
+      const pair = composePair(state, rng);
+      expect(pair.red.id).not.toBe(pair.blue.id);
+    }
+  });
+
+  it('위기 확률은 탈출이 가까울수록 올라간다', () => {
+    for (let s = 1; s <= ESCAPE_TARGET; s++) {
+      expect(crisisChance(s, ESCAPE_TARGET), `파편 ${s}`).toBeGreaterThan(
+        crisisChance(s - 1, ESCAPE_TARGET),
+      );
+    }
+    expect(crisisChance(0, ESCAPE_TARGET)).toBeCloseTo(CRISIS_AT_START / 100, 5);
+    expect(crisisChance(ESCAPE_TARGET, ESCAPE_TARGET)).toBeCloseTo(CRISIS_AT_ESCAPE / 100, 5);
+    // 목표를 넘겨도 깨지지 않는다.
+    expect(crisisChance(99, ESCAPE_TARGET)).toBe(crisisChance(ESCAPE_TARGET, ESCAPE_TARGET));
+  });
+
+  it('짝 유형 비율이 목표 근처에 떨어진다', () => {
+    const rng = new Rng('mix');
+    const state = createGame(rng);
+    const seen: Record<PairType, number> = { clash: 0, kin: 0, crisis: 0 };
+    const N = 6000;
+    for (let i = 0; i < N; i++) seen[composePair(state, rng).type] += 1;
+
+    // 위기는 파편 수에 따라 움직이므로 여기서는 파편 0 기준으로만 본다.
+    expect(seen.crisis / N).toBeCloseTo(crisisChance(0, ESCAPE_TARGET), 1);
+    const rest = seen.clash + seen.kin;
+    expect(seen.clash / rest).toBeCloseTo(PAIR_MIX.clash / (PAIR_MIX.clash + PAIR_MIX.kin), 1);
   });
 });
 
@@ -313,13 +351,13 @@ describe('선택 루프', () => {
     const state = createGame(rng);
     // 전투를 여는 선택지는 루프를 멈추므로, 전투가 없는 쪽을 골라 검증한다.
     const side = state.current!.red.effects.some((f) => f.type === 'pushLuck') ? 'blue' : 'red';
-    const first = state.current!.id;
+    const first = pairId(state.current!);
 
     choose(state, side, rng);
 
     expect(state.step).toBe(2);
     expect(state.current).not.toBeNull();
-    expect(state.current!.id).not.toBe(first);
+    expect(pairId(state.current!)).not.toBe(first);
     expect(state.records).toHaveLength(1);
   });
 
@@ -382,13 +420,14 @@ describe('선택 루프', () => {
   it('최근에 나온 선택지는 바로 다시 나오지 않는다', () => {
     const rng = new Rng('repeat');
     const state = createGame(rng);
-    const seen: string[] = [state.current!.id];
+    const seen: string[] = [...optionIds(state.current!)];
 
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 3; i++) {
       choose(state, 'blue', rng);
-      if (state.current) seen.push(state.current.id);
+      if (state.current) seen.push(...optionIds(state.current));
     }
 
+    // RECENT_WINDOW 안에서는 같은 낱개 선택지가 다시 나오지 않는다.
     expect(new Set(seen).size).toBe(seen.length);
   });
 });
@@ -399,17 +438,10 @@ describe('사망', () => {
     const state = createGame(rng);
     expect(state.hp).toBe(MAX_HP);
 
-    state.current = {
-      id: 'test-lethal',
-      prompt: '',
-      red: {
-        text: '',
-        tone: 'gamble',
-        kind: 'deck',
-        effects: [{ type: 'damage', amount: MAX_HP }],
-      },
-      blue: { text: '', tone: 'safe', kind: 'deck', effects: [] },
-    };
+    state.current = testPair(
+      { id: 'test-lethal', tone: 'gamble', effects: [{ type: 'damage', amount: MAX_HP }] },
+      { id: 'test-idle', tone: 'safe', effects: [] },
+    );
 
     choose(state, 'red', rng);
 
@@ -436,20 +468,17 @@ describe('사망', () => {
     const state = createGame(rng);
     state.shards = ESCAPE_TARGET - 1;
     state.hp = 1;
-    state.current = {
-      id: 'test-shard-lethal',
-      prompt: '',
-      red: {
-        text: '',
+    state.current = testPair(
+      {
+        id: 'test-shard-lethal',
         tone: 'now',
-        kind: 'shard',
         effects: [
           { type: 'shard', count: 1 },
           { type: 'damage', amount: 5 },
         ],
       },
-      blue: { text: '', tone: 'safe', kind: 'deck', effects: [] },
-    };
+      { id: 'test-idle', tone: 'safe', effects: [] },
+    );
 
     choose(state, 'red', rng);
 
@@ -467,8 +496,11 @@ describe('탈출', () => {
     apply(state, [{ type: 'shard', count: ESCAPE_TARGET - 1 }]);
     expect(state.escaped).toBe(false);
 
-    // 파편형 선택지를 직접 물려 마지막 하나를 채운다.
-    state.current = EVENTS.find((e) => e.id === 'crack-6')!;
+    // 파편 선택지를 직접 물려 마지막 하나를 채운다.
+    state.current = testPair(
+      { id: 'test-shard', tone: 'now', effects: [{ type: 'shard', count: 1 }] },
+      { id: 'test-idle', tone: 'safe', effects: [] },
+    );
     choose(state, 'red', rng);
 
     expect(state.shards).toBeGreaterThanOrEqual(ESCAPE_TARGET);
@@ -482,7 +514,10 @@ describe('탈출', () => {
     const rng = new Rng('after');
     const state = createGame(rng);
     apply(state, [{ type: 'shard', count: ESCAPE_TARGET }]);
-    state.current = EVENTS.find((e) => e.id === 'crack-6')!;
+    state.current = testPair(
+      { id: 'test-shard', tone: 'now', effects: [{ type: 'shard', count: 1 }] },
+      { id: 'test-idle', tone: 'safe', effects: [] },
+    );
     choose(state, 'red', rng);
     expect(state.escaped).toBe(true);
 
@@ -491,20 +526,24 @@ describe('탈출', () => {
     expect(state).toEqual(snapshot);
   });
 
-  it('파편 선택지는 확률적으로만 나온다 — 매번 당길 수는 없다', () => {
+  it('파편은 희소도에 눌려 드물게 나온다 — 매번 당길 수는 없다', () => {
     const rng = new Rng('rate');
     const state = createGame(rng);
-    let shardEvents = 0;
-    const runs = 2000;
+    let withShard = 0;
+    const runs = 4000;
 
     for (let i = 0; i < runs; i++) {
       state.recent = [];
-      if (drawEvent(state, rng).hasShard) shardEvents += 1;
+      const pair = drawPair(state, rng);
+      const hasShard = [pair.red, pair.blue].some((o) =>
+        o.effects.some((f) => f.type === 'shard'),
+      );
+      if (hasShard) withShard += 1;
     }
 
-    const rate = shardEvents / runs;
-    expect(rate).toBeGreaterThan(0.1);
-    expect(rate).toBeLessThan(0.4);
+    const rate = withShard / runs;
+    expect(rate).toBeGreaterThan(0.02);
+    expect(rate).toBeLessThan(0.25);
   });
 });
 

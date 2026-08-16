@@ -4,19 +4,19 @@ import {
   FIELD_START,
   MAX_HP,
   RECENT_WINDOW,
-  SHARD_EVENT_RATE,
   STARTING_DECK,
   TAINT_LEVELS,
 } from './balance';
 import { applyEffects, buildDeck, countKind } from './effects';
 import { applyRotDrain, curseCounts, drawOne, onEdge, resolvePairs } from './field';
-import { EVENTS } from './events';
+import { composePair } from './pairing';
 import type {
   CardInstance,
   CardKind,
-  ChoiceEvent,
+  ChoicePair,
   CurseType,
   GameState,
+  OptionDef,
 } from './types';
 
 /**
@@ -76,28 +76,22 @@ export function summarize(state: GameState): DeckSummary {
   };
 }
 
-const SHARD_EVENTS = EVENTS.filter((e) => e.hasShard);
-const PLAIN_EVENTS = EVENTS.filter((e) => !e.hasShard);
-
 /**
- * 다음 선택지를 뽑는다.
+ * 다음 짝을 세운다.
  *
- * 파편형은 확률로만 등장한다. 매번 파편을 당길 수 있으면 다섯 번 눌러 끝나서
- * "누적되면 덱이 달라진다"를 검증할 수 없기 때문이다.
+ * 파편은 더 이상 따로 확률을 갖지 않는다 — 희소도 체계에 흡수돼서
+ * 매우 희귀 등급으로 다른 선택지와 같은 저울에 오른다.
  */
-export function drawEvent(state: GameState, rng: Rng): ChoiceEvent {
-  const wantShard = rng.next() < SHARD_EVENT_RATE;
-  const primary = wantShard ? SHARD_EVENTS : PLAIN_EVENTS;
-
-  // 최근에 나온 것은 피하되, 다 걸러지면 그냥 원래 풀에서 뽑는다.
-  const fresh = primary.filter((e) => !state.recent.includes(e.id));
-  const pool = fresh.length > 0 ? fresh : primary;
-
-  return rng.pick(pool);
+export function drawPair(state: GameState, rng: Rng): ChoicePair {
+  const pair = composePair(state, rng);
+  state.pairStats[pair.type] += 1;
+  state.rarityStats[pair.red.rarity] += 1;
+  state.rarityStats[pair.blue.rarity] += 1;
+  return pair;
 }
 
-function remember(state: GameState, id: string): void {
-  state.recent.push(id);
+function remember(state: GameState, pair: ChoicePair): void {
+  state.recent.push(pair.red.id, pair.blue.id);
   while (state.recent.length > RECENT_WINDOW) state.recent.shift();
 }
 
@@ -122,13 +116,16 @@ export function createGame(rng: Rng): GameState {
     fieldSizes: [],
     riskyDraws: { taken: 0, paired: 0 },
     deckEmptiedAt: null,
+    pairStats: { clash: 0, kin: 0, crisis: 0 },
+    rarityStats: { common: 0, uncommon: 0, rare: 0, ultra: 0 },
+    highValueLog: [],
   };
 
   // 필드는 비어서 시작한다. 오직 선택지를 통해서만 채워진다.
   void FIELD_START;
 
-  state.current = drawEvent(state, rng);
-  remember(state, state.current.id);
+  state.current = drawPair(state, rng);
+  remember(state, state.current);
   state.log.push(
     `시작. 덱 ${state.deck.length}장, 필드 ${state.field.length}장, 체력 ${MAX_HP}. ` +
       `탈출구 파편 0/${ESCAPE_TARGET}.`,
@@ -141,8 +138,10 @@ export function createGame(rng: Rng): GameState {
 export function choose(state: GameState, side: 'red' | 'blue', rng: Rng): void {
   if (state.escaped || state.dead || state.push || !state.current) return;
 
-  const event = state.current;
-  const option = event[side];
+  const pair = state.current;
+  const option = pair[side];
+  const opposite = side === 'red' ? pair.blue : pair.red;
+  noteHighValue(state, pair, option, opposite);
   const changes = applyEffects(state, option.effects, rng);
 
   // 겹침은 뽑을 때 처리되지만, 필드에 저주를 놓는 경로가 뽑기만은 아니다
@@ -158,7 +157,7 @@ export function choose(state: GameState, side: 'red' | 'blue', rng: Rng): void {
   const summary = summarize(state);
   state.records.push({
     step: state.step,
-    eventId: event.id,
+    eventId: `${pair.red.id}|${pair.blue.id}`,
     side,
     text: option.text,
     changes,
@@ -174,6 +173,39 @@ export function choose(state: GameState, side: 'red' | 'blue', rng: Rng): void {
   if (state.push) return;
 
   advance(state, rng);
+}
+
+/**
+ * 고밸류 선택지가 떴을 때를 기록한다.
+ *
+ * 반대편이 무엇이었는지와, 플레이어가 그 고밸류를 실제로 집었는지를 남긴다.
+ * 반대편 규칙("고밸류 맞은편은 반드시 강한 유혹")이 실제로 유혹으로
+ * 기능하는지는 채택률로만 확인할 수 있다 — 100%에 가까우면 그 반대편은
+ * 유혹이 아니었다는 뜻이다.
+ */
+function noteHighValue(
+  state: GameState,
+  pair: ChoicePair,
+  picked: OptionDef,
+  other: OptionDef,
+): void {
+  for (const [o, opp, taken] of [
+    [pair.red, pair.blue, picked.id === pair.red.id],
+    [pair.blue, pair.red, picked.id === pair.blue.id],
+  ] as [OptionDef, OptionDef, boolean][]) {
+    if (o.value !== 'high') continue;
+    state.highValueLog.push({
+      step: state.step,
+      id: o.id,
+      text: o.text,
+      rarity: o.rarity,
+      oppositeId: opp.id,
+      oppositeValue: opp.value,
+      oppositeText: opp.text,
+      taken,
+    });
+  }
+  void other;
 }
 
 /** 사망 처리. 무엇에 죽었는지 남긴다. */
@@ -274,8 +306,8 @@ function advance(state: GameState, rng: Rng): void {
   }
 
   state.step += 1;
-  state.current = drawEvent(state, rng);
-  remember(state, state.current.id);
+  state.current = drawPair(state, rng);
+  remember(state, state.current);
 }
 
 /** 종류별 장수를 세어 정렬된 목록으로. UI에서 덱 확인용. */
