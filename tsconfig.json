@@ -16,5 +16,7 @@
     "noEmit": true,
     "types": ["vitest/globals", "node"]
   },
-  "include": ["src", "tests", "vite.config.ts"]
+  "include": ["src", "tests", "vite.config.ts"],
+  // 자동 짝짓기 시대의 데이터·코드. 참고용으로 남겨 두고 빌드에서는 뺀다.
+  "exclude": ["src/choice/retired"]
 }

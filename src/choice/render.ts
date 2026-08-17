@@ -6,10 +6,8 @@ import type {
   CardKind,
   CurseType,
   GameState,
-  OptionAxis,
-  OptionDef,
-  PairType,
-  Tone,
+  PairSide,
+  Rarity,
 } from './types';
 
 /**
@@ -26,36 +24,15 @@ export interface Handlers {
   onRestart: () => void;
 }
 
-const TONE_LABEL: Record<Tone, string> = {
-  greed: '탐욕',
-  safe: '안전',
-  now: '지금',
-  later: '나중',
-  gamble: '도박',
-  sure: '확실',
-};
-
 /**
- * 무엇을 만지는 선택인지 배지로 알려준다.
- * 뽑기(필드가 커진다)와 필드 정리(필드가 줄어든다)가 특히 먼저 읽혀야 한다.
+ * 희소도는 화면에 뜬다 — 자주 오지 않는 짝이라는 것을 알아야
+ * "이번에 안 고르면 다음이 언제일지 모른다"가 성립한다.
  */
-const AXIS_LABEL: Record<OptionAxis, string> = {
-  draw: '뽑기',
-  field: '필드',
-  deck: '덱',
-  hp: '체력',
-};
-
-/**
- * 이 짝이 무슨 판단인지 한 단어로.
- *
- * 유형별 비율이 아니라 짝의 관계가 판단의 성격을 정하므로, 그 관계를
- * 화면에서도 이름 붙여 준다.
- */
-const PAIR_LABEL: Record<PairType, string> = {
-  clash: '갈림길',
-  kin: '저울질',
-  crisis: '막다른 길',
+const RARITY_LABEL: Record<Rarity, string> = {
+  common: '흔함',
+  uncommon: '보통',
+  rare: '희귀',
+  ultra: '매우 희귀',
 };
 
 const KIND_LABEL: Record<CardKind, string> = {
@@ -65,18 +42,43 @@ const KIND_LABEL: Record<CardKind, string> = {
   shard: '파편',
 };
 
-function optionButton(side: 'red' | 'blue', option: OptionDef): string {
-  // 매우 희귀 선택지는 눈에 띄어야 한다 — 자주 오지 않는 기회라는 신호다.
-  const rare = option.rarity === 'ultra' || option.rarity === 'rare';
+/**
+ * 봉인된 색이면 버튼에 경고를 붙인다.
+ *
+ * 남은 횟수가 화면에 떠 있어도, 누르는 순간에 그 버튼 위에서 보이지 않으면
+ * 실수한다. 제약을 잊고 누르면 딜레마가 아니라 사고가 된다.
+ */
+function optionButton(side: 'red' | 'blue', option: PairSide, state: GameState): string {
+  const sealed = state.lasting.filter((l) => l.side === undefined || l.side === side);
+  const bite = sealed.reduce((sum, l) => sum + l.damage, 0);
   return `
-    <button class="pick pick--${side}${rare ? ' pick--rare' : ''}" data-side="${side}">
-      <span class="pick__tags">
-        <span class="pick__tone">${TONE_LABEL[option.tone]}</span>
-        <span class="pick__kind pick__kind--${option.axis}">${AXIS_LABEL[option.axis]}</span>
-        ${rare ? `<span class="pick__rarity">${option.rarity === 'ultra' ? '매우 희귀' : '희귀'}</span>` : ''}
-      </span>
+    <button class="pick pick--${side}${bite > 0 ? ' pick--sealed' : ''}" data-side="${side}">
+      ${bite > 0 ? `<span class="pick__seal">누르면 체력 -${bite}</span>` : ''}
       <span class="pick__text">${option.text}</span>
     </button>`;
+}
+
+/**
+ * 지금 걸려 있는 지속 효과. 남은 횟수를 항상 띄운다.
+ *
+ * 여러 개가 동시에 걸릴 수 있으므로 줄로 쌓는다.
+ */
+function lastingPanel(state: GameState): string {
+  if (state.lasting.length === 0) return '';
+  const rows = state.lasting
+    .map(
+      (l) => `
+      <li class="lasting__row${l.side ? ` lasting__row--${l.side}` : ''}">
+        <span class="lasting__label">${l.label}</span>
+        <span class="lasting__left">남은 <b>${l.remaining}</b>회</span>
+      </li>`,
+    )
+    .join('');
+  return `
+    <section class="lasting" aria-label="걸려 있는 제약">
+      <p class="lasting__head">걸려 있는 제약</p>
+      <ul class="lasting__list">${rows}</ul>
+    </section>`;
 }
 
 /**
@@ -309,17 +311,20 @@ export function render(root: HTMLElement, state: GameState, handlers: Handlers):
              </div>`
           : `
             <p class="prompt">
-              <span class="prompt__pair prompt__pair--${event!.type}">${PAIR_LABEL[event!.type]}</span>
-              ${event!.prompt}
+              <span class="prompt__rarity prompt__rarity--${event!.rarity}">${
+                RARITY_LABEL[event!.rarity]
+              }</span>
             </p>
             <div class="picks">
-              ${optionButton('red', event!.red)}
-              ${optionButton('blue', event!.blue)}
+              ${optionButton('red', event!.red, state)}
+              ${optionButton('blue', event!.blue, state)}
             </div>
           `
       }
       ${state.push ? '' : recentChanges(state)}
     </main>
+
+    ${lastingPanel(state)}
 
     ${fieldPanel(state)}
 

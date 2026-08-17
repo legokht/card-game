@@ -236,6 +236,38 @@ export function applyEffect(state: GameState, effect: Effect, rng: Rng): string[
       const branch = evaluate(state, effect.when) ? effect.then : effect.otherwise;
       return branch.flatMap((e) => applyEffect(state, e, rng));
     }
+
+    case 'addAny': {
+      // 종류를 가리지 않는다 — 저주가 섞여 있어서 "불린다"가 도박이 된다.
+      const kinds: CardKind[] = ['reward', 'neutral', 'curse'];
+      const added: string[] = [];
+      for (let i = 0; i < effect.count; i++) {
+        const kind = rng.pick(kinds);
+        // 저주는 종류별 덱 상한을 지켜야 하므로 makeCurse를 거친다.
+        const card = kind === 'curse' ? makeCurse(state, rng) : instantiate(rng.pick(poolOf(kind)).id);
+        state.deck.push(card);
+        added.push(card.name);
+      }
+      return added.length ? [`+ ${added.join(', ')}`] : [];
+    }
+
+    case 'lasting': {
+      // 같은 제약이 이미 걸려 있으면 남은 횟수를 새로 채운다 — 두 줄로 쌓이면
+      // 어느 쪽이 언제 풀리는지 화면에서 읽을 수 없다.
+      const existing = state.lasting.find((l) => l.id === effect.id);
+      if (existing) {
+        existing.remaining = effect.turns;
+        return [`${effect.label} — ${effect.turns}회로 다시 채워졌다`];
+      }
+      state.lasting.push({
+        id: effect.id,
+        label: effect.label,
+        remaining: effect.turns,
+        damage: effect.damage,
+        ...(effect.side ? { side: effect.side } : {}),
+      });
+      return [`${effect.label} (${effect.turns}회)`];
+    }
   }
 }
 

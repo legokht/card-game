@@ -3,20 +3,20 @@ import {
   ESCAPE_TARGET,
   FIELD_START,
   MAX_HP,
-  RECENT_WINDOW,
+  PAIR_RARITY_WEIGHT,
+  RECENT_PAIRS,
   STARTING_DECK,
   TAINT_LEVELS,
 } from './balance';
 import { applyEffects, buildDeck, countKind } from './effects';
 import { applyRotDrain, curseCounts, drawOne, onEdge, resolvePairs } from './field';
-import { composePair } from './pairing';
+import { PAIR_TABLE } from './pairs';
 import type {
   CardInstance,
   CardKind,
   ChoicePair,
   CurseType,
   GameState,
-  OptionDef,
 } from './types';
 
 /**
@@ -77,22 +77,39 @@ export function summarize(state: GameState): DeckSummary {
 }
 
 /**
- * 다음 짝을 세운다.
+ * 다음 짝을 뽑는다.
  *
- * 파편은 더 이상 따로 확률을 갖지 않는다 — 희소도 체계에 흡수돼서
- * 매우 희귀 등급으로 다른 선택지와 같은 저울에 오른다.
+ * 짝은 고정된 테이블에서 통째로 나온다 — 조합하지 않는다. 희소도만이
+ * "어떤 짝을 얼마나 자주 만나는가"를 정한다.
+ *
+ * 짝이 9개뿐이라 반복은 당연하고 의도된 것이다. 최근 몇 개만 걸러
+ * "방금 그거 또?"를 막되, 그 이상 거르면 순번 돌리기가 된다.
  */
 export function drawPair(state: GameState, rng: Rng): ChoicePair {
-  const pair = composePair(state, rng);
-  state.pairStats[pair.type] += 1;
-  state.rarityStats[pair.red.rarity] += 1;
-  state.rarityStats[pair.blue.rarity] += 1;
-  return pair;
+  const fresh = PAIR_TABLE.filter((p) => !state.recent.includes(p.id));
+  const pool = fresh.length > 0 ? fresh : PAIR_TABLE;
+
+  let total = 0;
+  for (const p of pool) total += PAIR_RARITY_WEIGHT[p.rarity];
+  let roll = rng.next() * total;
+  let picked = pool[pool.length - 1]!;
+  for (const p of pool) {
+    roll -= PAIR_RARITY_WEIGHT[p.rarity];
+    if (roll <= 0) {
+      picked = p;
+      break;
+    }
+  }
+
+  const stat = (state.pairStats[picked.id] ??= { seen: 0, red: 0, blue: 0 });
+  stat.seen += 1;
+  state.rarityStats[picked.rarity] += 1;
+  return picked;
 }
 
 function remember(state: GameState, pair: ChoicePair): void {
-  state.recent.push(pair.red.id, pair.blue.id);
-  while (state.recent.length > RECENT_WINDOW) state.recent.shift();
+  state.recent.push(pair.id);
+  while (state.recent.length > RECENT_PAIRS) state.recent.shift();
 }
 
 export function createGame(rng: Rng): GameState {
@@ -111,14 +128,14 @@ export function createGame(rng: Rng): GameState {
     recent: [],
     log: [],
     records: [],
+    lasting: [],
     triggers: { doom: 0, rot: 0, erode: 0 },
     causeOfDeath: null,
     fieldSizes: [],
     riskyDraws: { taken: 0, paired: 0 },
     deckEmptiedAt: null,
-    pairStats: { clash: 0, kin: 0, crisis: 0 },
+    pairStats: {},
     rarityStats: { common: 0, uncommon: 0, rare: 0, ultra: 0 },
-    highValueLog: [],
   };
 
   // 필드는 비어서 시작한다. 오직 선택지를 통해서만 채워진다.
@@ -140,9 +157,25 @@ export function choose(state: GameState, side: 'red' | 'blue', rng: Rng): void {
 
   const pair = state.current;
   const option = pair[side];
-  const opposite = side === 'red' ? pair.blue : pair.red;
-  noteHighValue(state, pair, option, opposite);
-  const changes = applyEffects(state, option.effects, rng);
+
+  // 어느 쪽을 골랐는지는 이번 단계의 핵심 지표다. 짝이 9개뿐이라 반복은
+  // 당연하고, 같은 짝에서 매번 같은 쪽만 고른다면 그 짝은 죽은 것이다.
+  const stat = (state.pairStats[pair.id] ??= { seen: 0, red: 0, blue: 0 });
+  stat[side] += 1;
+
+  // 선택 직전의 상태를 찍어 둔다 — 같은 짝이 상황에 따라 다르게 읽히는지
+  // 보려면 "그때 덱과 필드가 어땠는가"가 있어야 한다.
+  const before = summarize(state);
+  const snapshot = {
+    deckSize: state.deck.length,
+    fieldSize: state.field.length,
+    curseCount: before.curse,
+    hp: Math.max(0, state.hp),
+  };
+
+  // 지속 효과는 선택의 결과가 적용되기 전에 문다.
+  const changes = tickLasting(state, side);
+  changes.push(...applyEffects(state, option.effects, rng));
 
   // 겹침은 뽑을 때 처리되지만, 필드에 저주를 놓는 경로가 뽑기만은 아니다
   // (침식의 변환, 앞으로 추가될 효과들). 매 선택 끝에 한 번 더 확인해
@@ -154,16 +187,13 @@ export function choose(state: GameState, side: 'red' | 'blue', rng: Rng): void {
   state.fieldSizes.push(state.field.length);
   noteDeckEmpty(state);
 
-  const summary = summarize(state);
   state.records.push({
     step: state.step,
-    eventId: `${pair.red.id}|${pair.blue.id}`,
+    pairId: pair.id,
     side,
     text: option.text,
     changes,
-    deckSizeAfter: summary.total,
-    curseCountAfter: summary.curse,
-    hpAfter: Math.max(0, state.hp),
+    ...snapshot,
   });
 
   state.log.push(`${state.step}. [${side === 'red' ? '빨강' : '파랑'}] ${option.text}`);
@@ -176,36 +206,28 @@ export function choose(state: GameState, side: 'red' | 'blue', rng: Rng): void {
 }
 
 /**
- * 고밸류 선택지가 떴을 때를 기록한다.
+ * 지속 효과를 한 번 진행시킨다.
  *
- * 반대편이 무엇이었는지와, 플레이어가 그 고밸류를 실제로 집었는지를 남긴다.
- * 반대편 규칙("고밸류 맞은편은 반드시 강한 유혹")이 실제로 유혹으로
- * 기능하는지는 채택률로만 확인할 수 있다 — 100%에 가까우면 그 반대편은
- * 유혹이 아니었다는 뜻이다.
+ * 봉인된 색을 눌렀으면 피해를 물고, 무슨 선택을 하든 남은 횟수는 1 줄어든다.
+ * 0이 되면 사라진다 — 그래서 봉인된 색을 피해 다니면 피해 없이 흘려보낼 수
+ * 있고, "5회 동안 한쪽을 못 쓴다"가 제약이 된다.
  */
-function noteHighValue(
-  state: GameState,
-  pair: ChoicePair,
-  picked: OptionDef,
-  other: OptionDef,
-): void {
-  for (const [o, opp, taken] of [
-    [pair.red, pair.blue, picked.id === pair.red.id],
-    [pair.blue, pair.red, picked.id === pair.blue.id],
-  ] as [OptionDef, OptionDef, boolean][]) {
-    if (o.value !== 'high') continue;
-    state.highValueLog.push({
-      step: state.step,
-      id: o.id,
-      text: o.text,
-      rarity: o.rarity,
-      oppositeId: opp.id,
-      oppositeValue: opp.value,
-      oppositeText: opp.text,
-      taken,
-    });
+function tickLasting(state: GameState, side: 'red' | 'blue'): string[] {
+  const lines: string[] = [];
+
+  for (const l of state.lasting) {
+    if (l.side === undefined || l.side === side) {
+      state.hp -= l.damage;
+      lines.push(`${l.label} — 체력 -${l.damage} (${Math.max(0, state.hp)}/${state.maxHp})`);
+    }
+    l.remaining -= 1;
   }
-  void other;
+
+  const expired = state.lasting.filter((l) => l.remaining <= 0);
+  for (const l of expired) lines.push(`${l.label} — 풀렸다`);
+  state.lasting = state.lasting.filter((l) => l.remaining > 0);
+
+  return lines;
 }
 
 /** 사망 처리. 무엇에 죽었는지 남긴다. */

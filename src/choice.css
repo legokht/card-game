@@ -52,6 +52,7 @@ body {
   grid-template-areas:
     'top top'
     'stage deck'
+    'lasting deck'
     'field deck'
     'history deck';
   gap: 16px;
@@ -214,7 +215,7 @@ b {
 }
 
 /* 이 짝이 무슨 판단인지 — 갈림길 / 저울질 / 막다른 길. */
-.prompt__pair {
+.prompt__rarity {
   padding: 3px 10px;
   font-family: var(--sans);
   font-size: 11px;
@@ -223,22 +224,29 @@ b {
   border: 1px solid;
 }
 
-.prompt__pair--clash {
+.prompt__rarity--rare {
   color: var(--ember);
   border-color: rgba(207, 132, 52, 0.55);
   background: rgba(207, 132, 52, 0.12);
 }
 
-.prompt__pair--kin {
-  color: #8fb2c4;
-  border-color: rgba(77, 115, 133, 0.7);
-  background: rgba(77, 115, 133, 0.14);
+.prompt__rarity--common {
+  color: var(--dim);
+  border-color: var(--edge);
+  background: transparent;
 }
 
-.prompt__pair--crisis {
-  color: #e0796c;
-  border-color: rgba(168, 72, 60, 0.75);
-  background: rgba(168, 72, 60, 0.16);
+.prompt__rarity--uncommon {
+  color: #a8c8d8;
+  border-color: rgba(77, 115, 133, 0.6);
+  background: rgba(77, 115, 133, 0.12);
+}
+
+.prompt__rarity--ultra {
+  color: var(--ground);
+  border-color: var(--ember);
+  background: var(--ember);
+  font-weight: 600;
 }
 
 .picks {
@@ -299,61 +307,82 @@ b {
 }
 
 /* 어떤 종류의 선택인지 먼저 읽혀야 한다. 특히 '덱 사용'은 저주가 무는 자리다. */
-.pick__kind {
+/* 봉인된 버튼. 누르는 순간 보이지 않으면 실수한다. */
+.pick__seal {
+  align-self: flex-start;
   padding: 3px 9px;
   font-size: 11px;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   border-radius: 2px;
-  background: rgba(0, 0, 0, 0.32);
-  color: rgba(236, 226, 205, 0.85);
+  color: #ffd9d0;
+  background: rgba(20, 8, 6, 0.62);
+  box-shadow: inset 0 0 0 1px rgba(240, 160, 160, 0.55);
 }
 
-.pick__kind--draw {
-  color: #e8b27a;
-  box-shadow: inset 0 0 0 1px rgba(232, 178, 122, 0.35);
-}
-
-.pick__kind--field {
-  color: #7fc2b2;
-  box-shadow: inset 0 0 0 1px rgba(127, 194, 178, 0.35);
-}
-
-.pick__kind--deck {
-  color: #d3bc86;
-  box-shadow: inset 0 0 0 1px rgba(211, 188, 134, 0.3);
-}
-
-.pick__kind--hp {
-  color: #f0a0a0;
-  box-shadow: inset 0 0 0 1px rgba(240, 160, 160, 0.35);
-}
-
-/* 매우 희귀한 선택지는 자주 오지 않는 기회다. 놓쳤다는 것을 알 수 있어야 한다. */
-.pick__rarity {
-  padding: 3px 9px;
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  border-radius: 2px;
-  color: var(--ground);
-  background: var(--ember);
-  font-weight: 600;
-}
-
-.pick--rare {
+.pick--sealed {
   box-shadow:
-    0 0 0 1px var(--ember),
-    0 0 18px rgba(207, 132, 52, 0.28);
+    0 0 0 1px #b34a4a,
+    0 0 18px rgba(179, 74, 74, 0.3);
 }
 
-.pick__tone {
-  padding: 3px 9px;
-  font-family: var(--serif);
-  font-size: 11px;
+/* 걸려 있는 제약 — 남은 횟수가 항상 보여야 한다. */
+.lasting {
+  grid-area: lasting;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 11px 14px;
+  background: rgba(36, 18, 17, 0.82);
+  border: 1px solid #7d3a30;
+  border-left: 2px solid #b34a4a;
+  border-radius: 3px;
+}
+
+.lasting__head {
+  margin: 0;
+  font-size: 10px;
   letter-spacing: 0.14em;
-  text-indent: 0.14em;
+  text-transform: uppercase;
+  color: #e0a49c;
+}
+
+.lasting__list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lasting__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
   color: var(--bone);
-  background: rgba(0, 0, 0, 0.32);
-  border-radius: 2px;
+}
+
+.lasting__row--red .lasting__label {
+  color: #f0a79c;
+}
+
+.lasting__row--blue .lasting__label {
+  color: #a8c8d8;
+}
+
+.lasting__left {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.lasting__left b {
+  font-family: var(--mono);
+  font-size: 15px;
+  color: var(--bone);
+  font-variant-numeric: tabular-nums;
 }
 
 .pick__text {
@@ -968,6 +997,7 @@ b {
     grid-template-areas:
       'top'
       'stage'
+      'lasting'
       'field'
       'deck'
       'history';

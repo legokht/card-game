@@ -89,7 +89,21 @@ export type Effect =
   | { type: 'ifField'; when: FieldCondition; then: Effect[]; otherwise: Effect[] }
   /** 필드 장수에 비례해 회복한다. */
   | { type: 'healPerFieldCard'; amount: number }
-  | { type: 'ifThen'; when: Condition; then: Effect[]; otherwise: Effect[] };
+  | { type: 'ifThen'; when: Condition; then: Effect[]; otherwise: Effect[] }
+  /**
+   * 종류를 가리지 않고 덱에 넣는다 (파편 제외).
+   * 보상일 수도, 중립일 수도, 저주일 수도 있다 — 그래서 "불린다"가 도박이 된다.
+   */
+  | { type: 'addAny'; count: number }
+  /** 이후 N회의 선택에 걸쳐 유지되는 제약을 건다. */
+  | {
+      type: 'lasting';
+      id: string;
+      label: string;
+      turns: number;
+      damage: number;
+      side?: 'red' | 'blue';
+    };
 
 /** 감정 축. 계산 없이도 어느 쪽인지 읽히게 하는 라벨. */
 export type Tone = 'greed' | 'safe' | 'now' | 'later' | 'gamble' | 'sure';
@@ -102,93 +116,74 @@ export interface ChoiceOption {
   effects: Effect[];
 }
 
-/* ---------- 짝 규칙용 태그 ---------- */
-
-/** 무엇을 만지는가. */
-export type OptionAxis = 'deck' | 'field' | 'draw' | 'hp';
-
-/**
- * 미래에 투자하는가(덱 구성), 지금을 해결하는가(필드·뽑기·체력).
- * 대립 짝은 이 축이 서로 다른 둘을 붙여 만든다.
- */
-export type OptionDir = 'future' | 'now';
-
-/** 플레이어에게 돌아오는 이득의 크기. 손해는 빼지 않는다 — 유혹의 세기다. */
-export type OptionValue = 'low' | 'mid' | 'high';
+/* ---------- 짝 테이블 ---------- */
 
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'ultra';
 
-/**
- * 한 화면에 뜬 두 선택지의 관계.
- *
- * - `clash`  대립: 미래 투자 vs 현재 해결. 이 게임의 메인 딜레마
- * - `kin`    동류: 같은 방향끼리. 방향이 아니라 세부를 고른다
- * - `crisis` 위기: 양쪽 다 손해. 덜 나쁜 쪽을 고른다
- */
-export type PairType = 'clash' | 'kin' | 'crisis';
-
-/** 풀에 들어 있는 선택지 하나. 짝을 모르는 채로도 홀로 서야 한다. */
-export interface OptionDef {
-  id: string;
+/** 짝 한쪽. 문구와 효과가 전부다 — 태그는 짝에만 붙는다. */
+export interface PairSide {
   text: string;
-  tone: Tone;
-  axis: OptionAxis;
-  dir: OptionDir;
-  value: OptionValue;
-  rarity: Rarity;
-  /** 이득 없이 손해만 있는 선택지. 위기 짝은 이 풀에서만 만든다. */
-  crisis?: boolean;
   effects: Effect[];
 }
 
-/** 실제로 화면에 뜨는 한 쌍. 매번 규칙에 맞게 조합된다. */
+/**
+ * 빨강/파랑 한 쌍. **이것이 선택지의 최소 단위다.**
+ *
+ * 예전에는 낱개 선택지를 태그로 자동 조합했는데, 그러면 양쪽의 무게가 맞지
+ * 않는 짝이 나온다 — "저주 전부 제거" 맞은편에 "값싼 3장 버리기"가 놓이면
+ * 딜레마가 아니라 무료 보상이다. 짝을 고정하면 양쪽 무게를 의도적으로
+ * 설계할 수 있다.
+ */
 export interface ChoicePair {
-  type: PairType;
-  prompt: string;
-  red: OptionDef;
-  blue: OptionDef;
-}
-
-/** 고밸류 선택지가 떴을 때 반대편에 무엇이 있었고, 그것을 골랐는지. */
-export interface HighValueSighting {
-  step: number;
-  /** 고밸류 쪽. */
   id: string;
-  text: string;
+  red: PairSide;
+  blue: PairSide;
+  /** 이 짝이 묻는 딜레마. 주석용이며 화면에 나오지 않는다. */
+  intent: string;
   rarity: Rarity;
-  /** 맞은편. */
-  oppositeId: string;
-  oppositeValue: OptionValue;
-  oppositeText: string;
-  /** 플레이어가 고밸류 쪽을 실제로 골랐는가. */
-  taken: boolean;
 }
 
-export interface ChoiceEvent {
+/* ---------- 지속 효과 ---------- */
+
+/**
+ * 선택의 결과가 즉시 끝나지 않고 이후 N회의 선택에 걸쳐 유지되는 것.
+ *
+ * 남은 횟수는 화면에 항상 떠 있어야 한다 — 플레이어가 제약을 잊으면
+ * 딜레마가 아니라 사고가 된다.
+ */
+export interface LastingEffect {
   id: string;
-  /** 상황 한 줄. 없으면 선택지 두 개만 보여준다. */
-  prompt: string;
-  red: ChoiceOption;
-  blue: ChoiceOption;
-  /** 파편을 넣을 수 있는 선택지. 출현 빈도를 따로 관리한다. */
-  hasShard?: boolean;
-  /** 덱 상태에 따라 결과가 달라지는 선택지. */
-  readsDeck?: boolean;
-  /** 필드 상태를 보거나 필드를 건드리는 선택지. */
-  readsField?: boolean;
+  /** 화면에 뜨는 한 줄. */
+  label: string;
+  /** 남은 선택 횟수. 매 선택마다 1씩 줄고 0이 되면 사라진다. */
+  remaining: number;
+  /** 이 색을 누르면 피해를 받는다. 없으면 색과 무관하다. */
+  side?: 'red' | 'blue';
+  /** 발동 시 입는 피해. */
+  damage: number;
 }
 
 /** 선택 한 번의 기록. */
 export interface ChoiceRecord {
   step: number;
-  eventId: string;
+  /** 어떤 짝이었는지. */
+  pairId: string;
   side: 'red' | 'blue';
   text: string;
   /** 사람이 읽을 수 있는 변화 요약. */
   changes: string[];
-  deckSizeAfter: number;
-  curseCountAfter: number;
-  hpAfter: number;
+  /** 이 선택을 한 시점의 상태. 짝이 상황에 따라 다르게 읽히는지 보려면 필요하다. */
+  deckSize: number;
+  fieldSize: number;
+  curseCount: number;
+  hp: number;
+}
+
+/** 짝 하나의 등장·선택 집계. */
+export interface PairStat {
+  seen: number;
+  red: number;
+  blue: number;
 }
 
 /** 뽑기를 계속할지 멈출지 플레이어가 정하는 중인 상태. */
@@ -224,20 +219,22 @@ export interface GameState {
 
   /** 지금 제시된 짝. 탈출하면 null. */
   current: ChoicePair | null;
-  /** 최근에 나온 선택지 id들. 바로 다시 뽑히지 않게 하는 용도. */
+  /** 최근에 나온 짝 id들. 바로 다시 뽑히지 않게 하는 용도. */
   recent: string[];
 
-  /** 짝 유형이 실제로 몇 번 떴는지. 목표 비율과 대조한다. */
-  pairStats: Record<PairType, number>;
-  /** 희소도별 등장 횟수. 낱개 선택지 기준이라 짝 수의 두 배가 된다. */
-  rarityStats: Record<Rarity, number>;
+  /** 지금 걸려 있는 지속 효과들. 여러 개가 동시에 걸릴 수 있다. */
+  lasting: LastingEffect[];
+
   /**
-   * 고밸류 선택지가 떴을 때의 기록.
+   * 짝 id별 등장 횟수와 빨강/파랑 선택 횟수.
    *
-   * 반대편이 무엇이었는지, 그리고 플레이어가 그 고밸류를 실제로 골랐는지.
-   * "고밸류 맞은편은 반드시 강한 유혹"이 지켜지는지 보는 값이다.
+   * **이번 단계의 핵심 지표다.** 짝이 9개뿐이라 반복 등장이 당연하고,
+   * 목적은 같은 짝이 다시 나왔을 때 다른 쪽을 고르게 되는지 보는 것이다.
+   * 한쪽으로 90% 이상 쏠린 짝은 딜레마가 아니라 죽은 짝이다.
    */
-  highValueLog: HighValueSighting[];
+  pairStats: Record<string, PairStat>;
+  /** 희소도별 등장 횟수. 짝 단위다. */
+  rarityStats: Record<Rarity, number>;
 
   log: string[];
   records: ChoiceRecord[];

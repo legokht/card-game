@@ -14,7 +14,7 @@ import {
 } from '../src/choice/field';
 import { choose, createGame, pushDraw, pushStop } from '../src/choice/engine';
 import { applyEffects, countKind, resetUidCounter } from '../src/choice/effects';
-import { OPTION_POOL } from '../src/choice/options';
+import { PAIR_TABLE } from '../src/choice/pairs';
 import {
   CURSE_RULES,
   ERODE_CONVERT,
@@ -22,14 +22,7 @@ import {
   ROT_BURST,
   ROT_DRAIN,
 } from '../src/choice/balance';
-import type {
-  CardInstance,
-  ChoicePair,
-  CurseType,
-  Effect,
-  GameState,
-  OptionDef,
-} from '../src/choice/types';
+import type { CardInstance, ChoicePair, CurseType, Effect, GameState } from '../src/choice/types';
 
 beforeEach(() => {
   resetUidCounter();
@@ -60,14 +53,11 @@ function plain(name = '은빛 검'): CardInstance {
 }
 
 
-/** 풀에서 id로 골라 짝을 세운다. 특정 선택지를 물려야 하는 테스트용. */
-function pairFrom(redId: string, blueId: string): ChoicePair {
-  const find = (id: string): OptionDef => {
-    const o = OPTION_POOL.find((x) => x.id === id);
-    if (!o) throw new Error(`풀에 없는 선택지: ${id}`);
-    return o;
-  };
-  return { type: 'kin', prompt: '', red: find(redId), blue: find(blueId) };
+/** 테이블에서 id로 골라 물린다. 특정 짝이 필요한 테스트용. */
+function pairFrom(id: string): ChoicePair {
+  const p = PAIR_TABLE.find((x) => x.id === id);
+  if (!p) throw new Error(`테이블에 없는 짝: ${id}`);
+  return p;
 }
 
 describe('시작 필드', () => {
@@ -85,7 +75,7 @@ describe('시작 필드', () => {
     expect(before.length).toBeGreaterThan(0);
 
     // 필드를 건드리지 않는 선택지를 골라 유지되는지 본다.
-    state.current = pairFrom('debt-red', 'debt-blue');
+    state.current = pairFrom('quality-or-bulk');
     choose(state, 'blue', rng);
 
     for (const id of before) expect(state.field.some((c) => c.uid === id)).toBe(true);
@@ -241,7 +231,7 @@ describe('부패의 지속 피해', () => {
     const rng = new Rng('drain-loop');
     const state = createGame(rng);
     state.field = [curse('rot')];
-    state.current = pairFrom('debt-red', 'debt-blue');
+    state.current = pairFrom('quality-or-bulk');
     const hp = state.hp;
 
     choose(state, 'blue', rng);
@@ -348,11 +338,24 @@ describe('파멸은 덱에 아주 적게만 존재한다', () => {
   });
 });
 
+/**
+ * 푸시 유어 럭.
+ *
+ * 지금 짝 테이블(9개)에는 이 효과를 쓰는 짝이 없다 — 스펙이 정한 9개에
+ * 들어 있지 않기 때문이다. 규칙 자체는 살아 있으므로 효과를 직접 물려
+ * 검증한다. 테이블에 다시 넣으면 그대로 동작한다.
+ */
 describe('푸시 유어 럭', () => {
   function openPush(seed: string): { state: GameState; rng: Rng } {
     const rng = new Rng(seed);
     const state = createGame(rng);
-    state.current = pairFrom('gamble-draw-red', 'gamble-draw-blue');
+    state.current = {
+      id: 'test-push',
+      intent: '테스트용',
+      rarity: 'common',
+      red: { text: '멈출 때까지 뽑는다', effects: [{ type: 'pushLuck' }] },
+      blue: { text: '뽑지 않는다', effects: [] },
+    };
     choose(state, 'red', rng);
     return { state, rng };
   }
@@ -421,7 +424,7 @@ describe('기록', () => {
     const rng = new Rng('cause');
     const state = createGame(rng);
     state.field = [curse('doom'), curse('doom')];
-    state.current = pairFrom('debt-red', 'debt-blue');
+    state.current = pairFrom('quality-or-bulk');
 
     choose(state, 'blue', rng);
 
@@ -446,19 +449,8 @@ describe('기록', () => {
   });
 });
 
-describe('선택지 배합', () => {
-  it('뽑기와 필드 정리가 각각 충분히 많다', () => {
-    const by = (a: string) => OPTION_POOL.filter((o) => o.axis === a).length;
-    expect(by('draw')).toBeGreaterThanOrEqual(4);
-    expect(by('field')).toBeGreaterThanOrEqual(4);
-  });
-
-  it('필드를 바꾸는 선택지는 축이 필드나 뽑기나 체력이다', () => {
-    // 예전에는 readsField 플래그를 손으로 붙였고, 빠뜨리기 쉬웠다. 이제는 축
-    // 태그가 그 역할을 하므로 효과와 태그가 어긋나지 않는지만 본다.
-    //
-    // 읽기(ifField)와 바꾸기는 구분한다. "필드에 저주가 3장 이상이면 보상 3장"은
-    // 필드를 보고 판단하지만 바꾸는 것은 덱이므로 미래에 투자하는 선택지다.
+describe('짝 테이블과 필드', () => {
+  it('필드를 만지는 짝이 충분히 있다', () => {
     const changesField = (fx: Effect[]): boolean =>
       fx.some(
         (f) =>
@@ -473,10 +465,18 @@ describe('선택지 배합', () => {
             (changesField(f.then) || changesField(f.otherwise))),
       );
 
-    for (const o of OPTION_POOL) {
-      if (changesField(o.effects)) {
-        expect(['draw', 'field', 'hp'], o.id).toContain(o.axis);
-      }
-    }
+    const touching = PAIR_TABLE.filter(
+      (p) => changesField(p.red.effects) || changesField(p.blue.effects),
+    );
+    // 필드가 주인공이므로 절반 이상이 필드를 움직여야 한다.
+    expect(touching.length / PAIR_TABLE.length).toBeGreaterThanOrEqual(0.5);
+  });
+
+  it('필드를 비우는 길이 테이블 안에 있다', () => {
+    // 필드는 스스로 줄지 않는다. 테이블에서 제거가 사라지면 출구가 없어진다.
+    const purges = (fx: Effect[]): boolean =>
+      fx.some((f) => f.type === 'purgeCurse' || f.type === 'purgeRandom' || f.type === 'purgeAll');
+    const has = PAIR_TABLE.some((p) => purges(p.red.effects) || purges(p.blue.effects));
+    expect(has).toBe(true);
   });
 });
