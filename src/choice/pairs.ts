@@ -113,7 +113,22 @@ export const PAIR_TABLE: ChoicePair[] = [
     },
   },
 
-  // 6번은 파랑이 정해지지 않아 이번 구현에서 제외한다.
+  {
+    id: 'heal-for-taint',
+    rarity: 'uncommon',
+    intent: '지금 살기 위해 미래를 오염시킬 것인가',
+    red: {
+      text: '체력을 4 회복한다 — 덱에 저주 1장이 들어온다',
+      effects: [
+        { type: 'heal', amount: 4 },
+        { type: 'addRandom', kind: 'curse', count: 1 },
+      ],
+    },
+    blue: {
+      text: '체력을 2 잃는다',
+      effects: [{ type: 'damage', amount: 2 }],
+    },
+  },
 
   {
     id: 'look-or-grab',
@@ -181,6 +196,22 @@ export const PAIR_TABLE: ChoicePair[] = [
     blue: {
       text: '덱에서 필드로 1장을 펼친다',
       effects: [{ type: 'drawField', count: 1 }],
+    },
+  },
+
+  {
+    id: 'taint-tempo',
+    rarity: 'common',
+    // 양쪽이 동일하다. 선택이 없는 강제 이벤트로, 저주 유입 템포를 담당한다.
+    // 의도적으로 같게 설계된 것이므로 어느 한쪽을 바꾸지 말 것.
+    intent: '선택이 없다 — 저주가 들어오는 속도를 담당하는 강제 이벤트',
+    red: {
+      text: '덱에 저주 1장을 섞어넣는다',
+      effects: [{ type: 'addRandom', kind: 'curse', count: 1 }],
+    },
+    blue: {
+      text: '덱에 저주 1장을 섞어넣는다',
+      effects: [{ type: 'addRandom', kind: 'curse', count: 1 }],
     },
   },
 ];

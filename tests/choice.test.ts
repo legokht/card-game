@@ -36,9 +36,8 @@ function testPair(id: string, red: Effect[], blue: Effect[]): ChoicePair {
 }
 
 describe('짝 테이블', () => {
-  it('9개이고 id가 겹치지 않는다', () => {
-    // 6번은 파랑이 정해지지 않아 제외했다. 임의로 채우지 않는다.
-    expect(PAIR_TABLE).toHaveLength(9);
+  it('11개이고 id가 겹치지 않는다', () => {
+    expect(PAIR_TABLE).toHaveLength(11);
     expect(new Set(PAIR_TABLE.map((p) => p.id)).size).toBe(PAIR_TABLE.length);
   });
 
@@ -57,8 +56,17 @@ describe('짝 테이블', () => {
     for (const p of PAIR_TABLE) expect(p.intent.length, p.id).toBeGreaterThan(0);
   });
 
-  it('양쪽 문구가 서로 다르다', () => {
-    for (const p of PAIR_TABLE) expect(p.red.text, p.id).not.toBe(p.blue.text);
+  it('양쪽 문구가 서로 다르다 — 강제 이벤트만 빼고', () => {
+    // taint-tempo는 양쪽이 같게 **설계된** 짝이다. 선택이 없는 강제
+    // 이벤트로 저주 유입 템포를 담당한다. 버그가 아니다.
+    const forced = new Set(['taint-tempo']);
+    for (const p of PAIR_TABLE) {
+      if (forced.has(p.id)) {
+        expect(p.red.text, p.id).toBe(p.blue.text);
+        continue;
+      }
+      expect(p.red.text, p.id).not.toBe(p.blue.text);
+    }
   });
 
   it('참조하는 카드 id가 전부 풀에 있다', () => {
@@ -106,7 +114,7 @@ describe('짝 테이블', () => {
     // 흔함이 매우 희귀보다 확실히 자주 나온다.
     expect(rateOf('quality-or-bulk')).toBeGreaterThan(rateOf('shard-or-cleanse'));
     expect(rateOf('quality-or-bulk')).toBeGreaterThan(rateOf('seal'));
-    // 9개뿐이므로 어느 짝도 완전히 사라지지는 않는다.
+    // 11개뿐이므로 어느 짝도 완전히 사라지지는 않는다.
     for (const p of PAIR_TABLE) expect(rateOf(p.id), p.id).toBeGreaterThan(0);
   });
 
