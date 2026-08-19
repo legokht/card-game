@@ -464,22 +464,17 @@ b {
   }
 }
 
-/* 부패가 다음에 몇 장을 썩힐지 미리 알려준다. 모르고 누르면 사고다. */
-.rotpreview {
-  margin: 0;
-  padding: 7px 11px;
-  font-size: 12.5px;
-  color: #e8c49a;
+/* 부패로 깎여 되돌릴 수 없는 최대 체력. 잃은 것이 보여야 한다. */
+.vitals__lost {
+  padding: 2px 7px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #d8a878;
   background: rgba(80, 48, 18, 0.4);
   border: 1px solid #a8763c;
   border-radius: 2px;
-}
-
-.rotpreview b {
-  font-family: var(--mono);
-  font-size: 14px;
-  color: #ffd9a8;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* "한 장 더 뽑으면 겹친다"를 계산 없이 알려주는 줄. */

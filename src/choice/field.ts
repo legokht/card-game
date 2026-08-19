@@ -3,6 +3,8 @@ import {
   CURSE_RULES,
   DOOM_THRESHOLD,
   ERODE_DAMAGE,
+  MIN_MAX_HP,
+  ROT_MAX_HP_LOSS,
   ROT_THRESHOLD,
   cardById,
   curseWeights,
@@ -75,12 +77,6 @@ export function onEdge(field: CardInstance[]): CurseType[] {
   });
 }
 
-/** 부패가 지금 하나 더 놓이면 덱에서 몇 장이 바뀌는지. UI가 미리 보여준다. */
-export function rotPreview(field: CardInstance[]): number {
-  const next = curseCounts(field).rot + 1;
-  return next >= ROT_THRESHOLD ? next : 0;
-}
-
 export interface TriggerResult {
   type: CurseType;
   lines: string[];
@@ -103,6 +99,7 @@ function notePeak(state: GameState): void {
  * 어느 것도 발동 후 필드에서 사라지지 않는다.
  */
 export function onPlaced(state: GameState, card: CardInstance, rng: Rng): TriggerResult | null {
+  void rng; // 지금 세 저주 중 무작위를 쓰는 것은 없다. 시그니처는 유지한다.
   notePeak(state);
 
   const type = card.curseType;
@@ -123,18 +120,26 @@ export function onPlaced(state: GameState, card: CardInstance, rng: Rng): Trigge
     }
 
     case 'rot': {
-      // 새로 놓인 이 장을 포함해 문턱을 넘어야 발동한다.
+      // 새로 놓인 이 장을 포함해 문턱에 닿아야 발동한다.
       if (counts.rot < ROT_THRESHOLD) return null;
-      // 발동 시점의 필드 부패 장수만큼 덱이 썩는다. 자기 자신을 늘리는
-      // 저주라 한 번 구르기 시작하면 계단식으로 나빠진다.
-      const converted = convertDeckToRot(state, counts.rot, rng);
-      state.rotConverted += converted.length;
-      lines.push(`부패가 ${counts.rot}장 — 덱에서 ${counts.rot}장이 썩는다`);
+
+      const before = state.maxHp;
+      state.maxHp = Math.max(MIN_MAX_HP, state.maxHp - ROT_MAX_HP_LOSS);
+      const lost = before - state.maxHp;
+      state.rotMaxHpLost += lost;
+      // 현재 체력이 새 최대치를 넘으면 최대치까지 끌어내린다.
+      if (state.hp > state.maxHp) state.hp = state.maxHp;
+
+      // 발동한 2장은 소멸한다 — 그래서 필드에 무한정 쌓이지 않고,
+      // 부패는 반복해서 다시 쌓인다.
+      removeFromField(state, 'rot', ROT_THRESHOLD);
+
       lines.push(
-        converted.length > 0
-          ? `${converted.join(', ')} → 부패`
-          : '덱에 바꿀 보상·중립 카드가 없었다',
+        lost > 0
+          ? `부패 ${ROT_THRESHOLD}장이 모였다 — 최대 체력 ${before} → ${state.maxHp}`
+          : `부패 ${ROT_THRESHOLD}장이 모였다 — 최대 체력은 하한(${MIN_MAX_HP})이라 그대로다`,
       );
+      lines.push(`부패 ${ROT_THRESHOLD}장이 소멸했다 (${state.hp}/${state.maxHp})`);
       break;
     }
 
@@ -156,24 +161,15 @@ export function onPlaced(state: GameState, card: CardInstance, rng: Rng): Trigge
   return { type, lines, fatal };
 }
 
-/**
- * 덱의 보상·중립 카드를 무작위로 골라 부패로 바꾼다.
- *
- * 필드가 아니라 **덱**을 친다. 지금 당장은 아무 일도 없어 보이지만 앞으로
- * 뽑을 것이 나빠진다 — 부패가 노리는 것은 미래다.
- */
-function convertDeckToRot(state: GameState, count: number, rng: Rng): string[] {
-  const targets = state.deck.filter((c) => c.kind === 'reward' || c.kind === 'neutral');
-  const picked = rng.shuffle(targets).slice(0, count);
-
-  const names: string[] = [];
-  for (const card of picked) {
-    const i = state.deck.findIndex((c) => c.uid === card.uid);
-    if (i < 0) continue;
-    state.deck[i] = instantiate('rot');
-    names.push(card.name);
+/** 필드에서 해당 종류의 저주를 뒤에서부터 count장 걷어낸다. */
+function removeFromField(state: GameState, type: CurseType, count: number): void {
+  let left = count;
+  for (let i = state.field.length - 1; i >= 0 && left > 0; i--) {
+    if (state.field[i]!.curseType === type) {
+      state.field.splice(i, 1);
+      left -= 1;
+    }
   }
-  return names;
 }
 
 /** 방금 놓인 카드들을 순서대로 판정한다. 부패는 놓인 순서가 결과를 바꾼다. */

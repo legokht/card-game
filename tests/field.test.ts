@@ -10,7 +10,6 @@ import {
   purgeAll,
   purgeCurse,
   purgeRandom,
-  rotPreview,
 } from '../src/choice/field';
 import { choose, createGame, pushDraw, pushStop } from '../src/choice/engine';
 import { applyEffects, resetUidCounter } from '../src/choice/effects';
@@ -20,6 +19,9 @@ import {
   DOOM_THRESHOLD,
   ERODE_DAMAGE,
   FIELD_START,
+  MAX_HP,
+  MIN_MAX_HP,
+  ROT_MAX_HP_LOSS,
   ROT_THRESHOLD,
 } from '../src/choice/balance';
 import type { CardInstance, ChoicePair, CurseType, Effect, GameState } from '../src/choice/types';
@@ -146,84 +148,98 @@ describe('파멸 — 목숨을 노린다', () => {
   });
 });
 
-describe('부패 — 덱을 노린다', () => {
-  it(`${ROT_THRESHOLD}장이 되는 순간 그 장수만큼 덱이 썩는다`, () => {
+describe('부패 — 최대 체력을 노린다', () => {
+  it(`${ROT_THRESHOLD}장이 모이면 최대 체력이 ${ROT_MAX_HP_LOSS} 깎인다`, () => {
     const state = createGame(new Rng('rot'));
     state.field = [];
-    const cleanBefore = state.deck.filter((c) => c.kind !== 'curse').length;
+    const maxBefore = state.maxHp;
 
     place(state, curse('rot'));
     expect(state.triggers.rot).toBe(0);
+    expect(state.maxHp).toBe(maxBefore);
 
     place(state, curse('rot'));
     expect(state.triggers.rot).toBe(1);
-    expect(state.rotConverted).toBe(ROT_THRESHOLD);
-    expect(state.deck.filter((c) => c.kind !== 'curse').length).toBe(cleanBefore - ROT_THRESHOLD);
+    expect(state.maxHp).toBe(maxBefore - ROT_MAX_HP_LOSS);
+    expect(state.rotMaxHpLost).toBe(ROT_MAX_HP_LOSS);
   });
 
-  it('3장째가 놓이면 3장이 썩는다 — 계단식으로 나빠진다', () => {
-    const state = createGame(new Rng('rot-3'));
+  it(`발동한 ${ROT_THRESHOLD}장은 필드에서 소멸한다`, () => {
+    const state = createGame(new Rng('rot-gone'));
     state.field = [];
     place(state, curse('rot'));
     place(state, curse('rot'));
-    const after2 = state.rotConverted;
 
-    place(state, curse('rot'));
-    expect(state.rotConverted - after2).toBe(3);
+    expect(curseCounts(state.field).rot).toBe(0);
   });
 
-  it('체력은 건드리지 않는다 — 부패가 노리는 것은 덱이다', () => {
+  it('소멸하므로 다시 쌓여 또 발동한다', () => {
+    const state = createGame(new Rng('rot-again'));
+    state.field = [];
+    const maxBefore = state.maxHp;
+
+    for (let i = 0; i < ROT_THRESHOLD * 2; i++) place(state, curse('rot'));
+
+    expect(state.triggers.rot).toBe(2);
+    expect(state.maxHp).toBe(maxBefore - ROT_MAX_HP_LOSS * 2);
+    expect(curseCounts(state.field).rot).toBe(0);
+  });
+
+  it('현재 체력이 새 최대치를 넘으면 최대치까지 내려간다', () => {
+    const state = createGame(new Rng('rot-clamp'));
+    state.field = [];
+    state.hp = state.maxHp; // 가득 찬 상태
+
+    place(state, curse('rot'));
+    place(state, curse('rot'));
+
+    expect(state.hp).toBe(state.maxHp);
+    expect(state.hp).toBeLessThan(MAX_HP);
+  });
+
+  it('여유가 있으면 현재 체력은 그대로 둔다', () => {
+    const state = createGame(new Rng('rot-keep'));
+    state.field = [];
+    state.hp = 3; // 새 최대치보다 한참 낮다
+
+    place(state, curse('rot'));
+    place(state, curse('rot'));
+
+    expect(state.hp).toBe(3);
+  });
+
+  it(`최대 체력은 하한 ${MIN_MAX_HP} 아래로 내려가지 않는다`, () => {
+    const state = createGame(new Rng('rot-floor'));
+    state.field = [];
+
+    // 몇 번을 터뜨려도 하한에서 멈춘다.
+    for (let i = 0; i < 20; i++) place(state, curse('rot'));
+
+    expect(state.maxHp).toBe(MIN_MAX_HP);
+    expect(state.hp).toBeLessThanOrEqual(MIN_MAX_HP);
+  });
+
+  it('덱은 건드리지 않는다 — 자기 증식하지 않는다', () => {
+    const state = createGame(new Rng('rot-deck'));
+    state.field = [];
+    const deckBefore = state.deck.map((c) => c.defId).join();
+
+    place(state, curse('rot'));
+    place(state, curse('rot'));
+
+    expect(state.deck.map((c) => c.defId).join()).toBe(deckBefore);
+  });
+
+  it('현재 체력은 직접 깎지 않는다', () => {
     const state = createGame(new Rng('rot-hp'));
     state.field = [];
-    const hp = state.hp;
+    state.hp = 1;
+
     place(state, curse('rot'));
     place(state, curse('rot'));
-    expect(state.hp).toBe(hp);
-  });
 
-  it('발동해도 필드에 남는다', () => {
-    const state = createGame(new Rng('rot-stay'));
-    state.field = [];
-    place(state, curse('rot'));
-    place(state, curse('rot'));
-    expect(curseCounts(state.field).rot).toBe(2);
-  });
-
-  it('새로 놓일 때만 발동한다 — 선택마다 반복되지 않는다', () => {
-    const rng = new Rng('rot-once');
-    const state = createGame(rng);
-    state.field = [];
-    place(state, curse('rot'));
-    place(state, curse('rot'));
-    const converted = state.rotConverted;
-
-    // 부패를 필드에 둔 채 부패와 무관한 선택을 해도 다시 썩지 않는다.
-    state.current = pairFrom('quality-or-bulk');
-    choose(state, 'red', rng);
-
-    expect(state.rotConverted).toBe(converted);
-  });
-
-  it('덱에 바꿀 카드가 없으면 그냥 넘어간다', () => {
-    const state = createGame(new Rng('rot-empty'));
-    state.field = [];
-    state.deck = [];
-    place(state, curse('rot'));
-    const r = place(state, curse('rot'));
-    expect(r?.lines.join()).toContain('없었');
-    expect(state.rotConverted).toBe(0);
-  });
-
-  it('다음에 몇 장이 썩을지 미리 알 수 있다', () => {
-    const state = createGame(new Rng('preview'));
-    state.field = [];
-    expect(rotPreview(state.field)).toBe(0);
-
-    state.field.push(curse('rot'));
-    expect(rotPreview(state.field)).toBe(2);
-
-    state.field.push(curse('rot'));
-    expect(rotPreview(state.field)).toBe(3);
+    expect(state.hp).toBe(1);
+    expect(state.dead).toBe(false);
   });
 });
 

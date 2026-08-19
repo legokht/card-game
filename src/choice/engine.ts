@@ -132,7 +132,7 @@ export function createGame(rng: Rng): GameState {
     triggers: { doom: 0, rot: 0, erode: 0 },
     peakField: { doom: 0, rot: 0, erode: 0 },
     erodeDamage: 0,
-    rotConverted: 0,
+    rotMaxHpLost: 0,
     causeOfDeath: null,
     fieldSizes: [],
     riskyDraws: { taken: 0, paired: 0 },

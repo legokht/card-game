@@ -5,7 +5,7 @@ export type CardKind = 'reward' | 'curse' | 'neutral' | 'shard';
  * 저주 종류. 셋 다 **필드에 놓이는 순간** 판정하고, 공격 대상이 서로 다르다.
  *
  * - `doom` 파멸 → 목숨: 필드에 3장 모이면 즉사. 문턱이 높지만 결과가 최악이다.
- * - `rot` 부패 → 덱: 2장 이상일 때 하나 더 놓이면 그 장수만큼 덱이 썩는다.
+ * - `rot` 부패 → 최대 체력: 2장이 모이면 최대 체력이 깎이고 그 2장은 소멸한다.
  * - `erode` 침식 → 체력: 문턱 없이 놓일 때마다 체력이 깎인다.
  */
 export type CurseType = 'doom' | 'rot' | 'erode';
@@ -249,8 +249,8 @@ export interface GameState {
   peakField: Record<CurseType, number>;
   /** 침식이 지금까지 깎은 체력 총합. */
   erodeDamage: number;
-  /** 부패가 지금까지 덱에서 썩힌 카드 총 장수. */
-  rotConverted: number;
+  /** 부패가 지금까지 깎은 최대 체력 총합. 회복으로 되돌릴 수 없는 손실이다. */
+  rotMaxHpLost: number;
   /** 사망 원인. 저주가 겹쳐 죽었으면 그 종류. */
   causeOfDeath: string | null;
   /** 매 선택 후의 필드 크기. 평균을 내기 위한 것. */

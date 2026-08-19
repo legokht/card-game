@@ -1,6 +1,6 @@
-import { CURSE_RULES } from './balance';
+import { CURSE_RULES, MAX_HP } from './balance';
 import { deckByKind, deckCurseBreakdown, fieldCurseBreakdown, summarize } from './engine';
-import { onEdge, rotPreview } from './field';
+import { onEdge } from './field';
 import type {
   CardInstance,
   CardKind,
@@ -92,7 +92,6 @@ function lastingPanel(state: GameState): string {
 function fieldPanel(state: GameState): string {
   const edged = onEdge(state.field);
   const onField = fieldCurseBreakdown(state);
-  const nextRot = rotPreview(state.field);
 
   const cards = state.field
     .map((card: CardInstance) => {
@@ -145,11 +144,6 @@ function fieldPanel(state: GameState): string {
         <span class="field__tally">${tally}</span>
       </div>
       ${warnings ? `<div class="edgewarns">${warnings}</div>` : ''}
-      ${
-        nextRot > 0
-          ? `<p class="rotpreview">다음 부패가 놓이면 — 덱에서 <b>${nextRot}장</b>이 부패로 바뀐다</p>`
-          : ''
-      }
       <div class="fcards">${cards || '<p class="fcards__empty">아직 아무것도 펼치지 않았다</p>'}</div>
     </section>`;
 }
@@ -187,12 +181,16 @@ function pushView(state: GameState): string {
 function vitals(state: GameState): string {
   const pct = Math.max(0, (state.hp / state.maxHp) * 100);
   const low = state.hp <= state.maxHp * 0.34;
+  // 부패로 깎인 최대 체력은 회복으로 돌아오지 않는다. 얼마나 잃었는지가
+  // 보이지 않으면 "왜 회복해도 예전만 못한가"를 알 수 없다.
+  const lost = MAX_HP - state.maxHp;
   return `
     <div class="vitals">
       <span class="top__label">체력</span>
       <div class="vitals__row">
         <b class="${low ? 'is-low' : ''}">${state.hp}<span class="of">/${state.maxHp}</span></b>
         <div class="hpbar"><i class="${low ? 'is-low' : ''}" style="width:${pct}%"></i></div>
+        ${lost > 0 ? `<span class="vitals__lost" title="부패로 깎여 되돌릴 수 없다">최대 ${MAX_HP} → ${state.maxHp}</span>` : ''}
       </div>
     </div>`;
 }

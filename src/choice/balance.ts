@@ -132,12 +132,22 @@ export const FIELD_START = 0;
 export const DOOM_THRESHOLD = 3;
 
 /**
- * 부패가 발동하는 필드 장수.
+ * 부패가 발동하는 필드 장수. 이 수만큼 모이면 즉시 발동하고 그 2장은 소멸한다.
  *
- * 필드에 이 수 이상 있는 상태에서 **부패가 새로 놓일 때** 1회 발동한다.
- * 매 선택마다 반복되지 않는다.
+ * 소멸하므로 필드에 무한정 쌓이지 않고, 부패는 반복해서 다시 쌓인다.
  */
 export const ROT_THRESHOLD = 2;
+
+/**
+ * 부패가 한 번 발동할 때 깎이는 **최대** 체력.
+ *
+ * 회복으로 되돌릴 수 없다 — 그래서 회복 짝의 가치를 서서히 잠식한다.
+ * 파멸이 즉사, 침식이 즉시 소액이라면 부패는 장기 여력 삭감이다.
+ */
+export const ROT_MAX_HP_LOSS = 5;
+
+/** 최대 체력이 이 아래로는 내려가지 않는다. */
+export const MIN_MAX_HP = 5;
 
 /** 침식이 필드에 놓일 때마다 깎이는 체력. 문턱도 중첩도 없다. */
 export const ERODE_DAMAGE = 2;
@@ -188,8 +198,8 @@ export const CURSE_RULES: Record<CurseType, CurseRule> = {
     deckMax: 99,
     weight: 2,
     threshold: ROT_THRESHOLD,
-    target: '덱',
-    description: `필드에 ${ROT_THRESHOLD}장 이상일 때 하나 더 놓이면, 그 장수만큼 덱의 카드가 부패로 바뀐다`,
+    target: '최대 체력',
+    description: `필드에 ${ROT_THRESHOLD}장 모이면 최대 체력 -${ROT_MAX_HP_LOSS} (회복으로 되돌릴 수 없다)`,
   },
   erode: {
     type: 'erode',
