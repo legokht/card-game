@@ -14,8 +14,14 @@ import {
   SEAL_TURNS,
   STARTING_DECK,
 } from '../src/choice/balance';
-import { curseCounts } from '../src/choice/field';
-import type { ChoicePair, CurseType, Effect, GameState } from '../src/choice/types';
+import { countShards, curseCounts } from '../src/choice/field';
+import type {
+  CardInstance,
+  ChoicePair,
+  CurseType,
+  Effect,
+  GameState,
+} from '../src/choice/types';
 
 beforeEach(() => {
   resetUidCounter();
@@ -23,6 +29,13 @@ beforeEach(() => {
 
 function apply(state: GameState, effects: Effect[], seed = 'fx'): string[] {
   return applyEffects(state, effects, new Rng(seed));
+}
+
+let shardUid = 0;
+/** 필드에 직접 깔아 둘 파편 한 장. */
+function shard(): CardInstance {
+  shardUid += 1;
+  return { uid: `s${shardUid}`, defId: 'shard', name: '탈출구 파편', kind: 'shard', value: 0 };
 }
 
 /** 테스트가 특정 상황을 직접 세울 때 쓰는 최소한의 짝. */
@@ -365,12 +378,14 @@ describe('효과 적용', () => {
     expect(countKind(state.deck, 'curse')).toBe(before);
   });
 
-  it('파편은 덱에도 들어가고 카운트도 올린다', () => {
+  it('파편은 덱에 들어갈 뿐 진척이 되지 않는다', () => {
+    // 넣는 것은 시작일 뿐이다. 필드로 꺼내야 탈출에 다가간다.
     const state = createGame(new Rng('shard'));
     apply(state, [{ type: 'shard', count: 2 }]);
 
-    expect(state.shards).toBe(2);
-    expect(countKind(state.deck, 'shard')).toBe(2);
+    expect(countShards(state.deck)).toBe(2);
+    expect(countShards(state.field)).toBe(0);
+    expect(state.escaped).toBe(false);
   });
 });
 
@@ -382,7 +397,7 @@ describe('선택 루프', () => {
     // 필드는 비어서 시작한다. 오직 선택지로만 채워진다.
     expect(state.field).toHaveLength(FIELD_START);
     expect(state.deck).toHaveLength(STARTING_DECK.length);
-    expect(state.shards).toBe(0);
+    expect(countShards(state.field)).toBe(0);
   });
 
   it('선택하면 덱이 바뀌고 다음 선택지가 나온다', () => {
@@ -416,9 +431,9 @@ describe('선택 루프', () => {
     apply(state, [{ type: 'shard', count: 3 }]);
     apply(state, [{ type: 'removeExtreme', end: 'lowest', count: 5 }]);
 
-    // 파편은 값어치 0이라 그냥 두면 가장 먼저 잘려 나가고, 덱과 카운트가 어긋난다.
-    expect(countKind(state.deck, 'shard')).toBe(3);
-    expect(state.shards).toBe(3);
+    // 파편은 값어치 0이라 그냥 두면 가장 먼저 잘려 나간다 — 아직 뽑지도 못한
+    // 탈출 수단이 모르는 사이에 사라진다.
+    expect(countShards(state.deck)).toBe(3);
   });
 
   it('항상 덱을 불리는 쪽만 골라도 무한정 커지지 않는다', () => {
@@ -501,15 +516,17 @@ describe('사망', () => {
     expect(state).toEqual(snapshot);
   });
 
-  it('마지막 파편을 캐다 죽으면 탈출이 아니라 사망이다', () => {
+  it('마지막 파편을 뽑다 죽으면 탈출이 아니라 사망이다', () => {
     const rng = new Rng('lethal-shard');
     const state = createGame(rng);
-    state.shards = ESCAPE_TARGET - 1;
+    // 필드에 목표 직전까지 깔아 두고, 마지막 한 장을 덱에서 뽑게 한다.
+    state.field = Array.from({ length: ESCAPE_TARGET - 1 }, () => shard());
+    state.deck = [shard()];
     state.hp = 1;
     state.current = testPair(
       'test-shard-lethal',
       [
-        { type: 'shard', count: 1 },
+        { type: 'drawField', count: 1 },
         { type: 'damage', amount: 5 },
       ],
       [],
@@ -517,25 +534,34 @@ describe('사망', () => {
 
     choose(state, 'red', rng);
 
-    expect(state.shards).toBeGreaterThanOrEqual(ESCAPE_TARGET);
+    expect(countShards(state.field)).toBeGreaterThanOrEqual(ESCAPE_TARGET);
     expect(state.dead).toBe(true);
     expect(state.escaped).toBe(false);
   });
 });
 
 describe('탈출', () => {
-  it('파편이 목표에 닿으면 탈출하고 루프가 멈춘다', () => {
+  it('덱에 아무리 많아도 뽑지 못하면 탈출이 아니다', () => {
+    const state = createGame(new Rng('hoard'));
+    apply(state, [{ type: 'shard', count: ESCAPE_TARGET * 3 }]);
+
+    expect(countShards(state.deck)).toBeGreaterThanOrEqual(ESCAPE_TARGET);
+    expect(state.escaped).toBe(false);
+  });
+
+  it('필드에 파편이 목표만큼 나오면 탈출하고 루프가 멈춘다', () => {
     const rng = new Rng('escape');
     const state = createGame(rng);
 
-    apply(state, [{ type: 'shard', count: ESCAPE_TARGET - 1 }]);
+    state.field = Array.from({ length: ESCAPE_TARGET - 1 }, () => shard());
+    state.deck = [shard()];
     expect(state.escaped).toBe(false);
 
-    // 파편 선택지를 직접 물려 마지막 하나를 채운다.
-    state.current = testPair('test-shard', [{ type: 'shard', count: 1 }], []);
+    // 마지막 한 장을 덱에서 필드로 꺼낸다.
+    state.current = testPair('test-draw', [{ type: 'drawField', count: 1 }], []);
     choose(state, 'red', rng);
 
-    expect(state.shards).toBeGreaterThanOrEqual(ESCAPE_TARGET);
+    expect(countShards(state.field)).toBeGreaterThanOrEqual(ESCAPE_TARGET);
     expect(state.escaped).toBe(true);
     expect(state.dead).toBe(false);
     expect(state.current).toBeNull();
@@ -545,8 +571,8 @@ describe('탈출', () => {
   it('탈출한 뒤에는 더 선택되지 않는다', () => {
     const rng = new Rng('after');
     const state = createGame(rng);
-    apply(state, [{ type: 'shard', count: ESCAPE_TARGET }]);
-    state.current = testPair('test-shard', [{ type: 'shard', count: 1 }], []);
+    state.field = Array.from({ length: ESCAPE_TARGET }, () => shard());
+    state.current = testPair('test-noop', [{ type: 'heal', amount: 1 }], []);
     choose(state, 'red', rng);
     expect(state.escaped).toBe(true);
 

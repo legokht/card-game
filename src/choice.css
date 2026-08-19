@@ -124,10 +124,23 @@ b {
   box-shadow: 0 0 8px rgba(78, 154, 138, 0.55);
 }
 
+/* 승리 조건은 필드의 파편이다. 덱에 몇 장 있는지보다 크게 둔다. */
 .escape__count {
   font-family: var(--mono);
   font-size: 13px;
   color: var(--bone);
+  font-variant-numeric: tabular-nums;
+}
+
+.escape__count b {
+  font-size: 18px;
+  color: var(--shard);
+}
+
+.escape__deck {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--faint);
   font-variant-numeric: tabular-nums;
 }
 

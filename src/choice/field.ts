@@ -48,6 +48,16 @@ function instantiate(defId: string): CardInstance {
   };
 }
 
+/**
+ * 파편 장수. 종류가 하나뿐이라 kind만 세면 된다.
+ *
+ * **필드에 나온 파편만 탈출 진척이다.** 덱에 넣는 것은 시작일 뿐이고,
+ * 실제로 꺼내는 것이 과제다 — 덱이 두꺼우면 좀처럼 뽑히지 않는다.
+ */
+export function countShards(cards: CardInstance[]): number {
+  return cards.filter((c) => c.kind === 'shard').length;
+}
+
 /** 덱 안의 저주 종류별 장수. 파멸 상한을 지키는 데 쓴다. */
 export function curseCounts(cards: CardInstance[]): Record<CurseType, number> {
   const counts: Record<CurseType, number> = { doom: 0, rot: 0, erode: 0 };

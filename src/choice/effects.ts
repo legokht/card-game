@@ -2,6 +2,7 @@ import type { Rng } from '../engine/rng';
 import { cardById, poolOf } from './balance';
 import {
   addToField,
+  countShards,
   drawToField,
   makeCurse,
   peek,
@@ -91,8 +92,8 @@ function pickForRemoval(deck: CardInstance[], kind: CardKind, count: number): Ca
 /**
  * 종류를 명시하지 않은 제거("값싼 카드부터 버린다")에서 빠지는 카드들.
  *
- * 파편은 값어치가 0이라 가장 먼저 걸린다. 그러면 덱의 파편 수와 탈출 카운트가
- * 어긋나고, 모은 진척이 모르는 사이에 깎인다.
+ * 파편은 값어치가 0이라 가장 먼저 걸린다. 그러면 아직 뽑지도 못한 탈출
+ * 수단이 모르는 사이에 사라진다.
  *
  * 저주도 값이 싸서 매번 먼저 잘려 나갔다. 그 결과 짐을 덜어낼 때마다 저주가
  * 공짜로 청소돼 오염도가 5%를 넘지 못했고, 저주 페널티 자체가 성립하지 않았다
@@ -178,13 +179,10 @@ export function applyEffect(state: GameState, effect: Effect, rng: Rng): string[
     }
 
     case 'shard': {
-      const lines: string[] = [];
-      for (let i = 0; i < effect.count; i++) {
-        state.deck.push(instantiate('shard'));
-        state.shards += 1;
-      }
-      lines.push(`+ 탈출구 파편 ×${effect.count} (${state.shards}/${state.escapeTarget})`);
-      return lines;
+      // 덱에 넣기만 한다. 탈출 진척은 **필드에 나왔을 때** 올라간다.
+      for (let i = 0; i < effect.count; i++) state.deck.push(instantiate('shard'));
+      const inDeck = countShards(state.deck);
+      return [`+ 탈출구 파편 ×${effect.count} — 덱에 ${inDeck}장 (뽑아야 진척이 된다)`];
     }
 
     case 'damage': {

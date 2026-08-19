@@ -1,6 +1,6 @@
 import { CURSE_RULES, MAX_HP } from './balance';
 import { deckByKind, deckCurseBreakdown, fieldCurseBreakdown, summarize } from './engine';
-import { onEdge } from './field';
+import { countShards, onEdge } from './field';
 import type {
   CardInstance,
   CardKind,
@@ -195,16 +195,25 @@ function vitals(state: GameState): string {
     </div>`;
 }
 
+/**
+ * 탈출 진척.
+ *
+ * **필드에 나온 파편만 센다.** 덱에 넣는 것은 시작일 뿐이고 꺼내는 것이
+ * 과제이므로, 두 수를 나란히 보여주되 승리 조건인 필드 쪽을 크게 둔다.
+ */
 function shardTrack(state: GameState): string {
+  const onField = countShards(state.field);
+  const inDeck = countShards(state.deck);
   const pips = Array.from(
     { length: state.escapeTarget },
-    (_, i) => `<i class="${i < state.shards ? 'is-lit' : ''}"></i>`,
+    (_, i) => `<i class="${i < onField ? 'is-lit' : ''}"></i>`,
   ).join('');
   return `
     <div class="escape">
       <span class="escape__label">탈출구 파편</span>
       <span class="escape__pips">${pips}</span>
-      <span class="escape__count">${state.shards}/${state.escapeTarget}</span>
+      <span class="escape__count">필드 <b>${onField}</b>/${state.escapeTarget}</span>
+      <span class="escape__deck">덱에 ${inDeck}</span>
     </div>`;
 }
 
@@ -307,14 +316,18 @@ export function render(root: HTMLElement, state: GameState, handlers: Handlers):
           ? `<div class="dead" role="status">
                <span class="dead__word">사망</span>
                <span class="dead__cause">${state.causeOfDeath ?? '체력이 바닥났다'}</span>
-               <span class="dead__sub">선택 ${state.step}회 · 파편 ${state.shards}/${
-                 state.escapeTarget
-               } · 필드 ${state.field.length}장 · 덱 ${state.deck.length}장 남음</span>
+               <span class="dead__sub">선택 ${state.step}회 · 필드 파편 ${countShards(
+                 state.field,
+               )}/${state.escapeTarget} · 필드 ${state.field.length}장 · 덱 ${
+                 state.deck.length
+               }장 남음</span>
              </div>`
           : state.escaped
           ? `<div class="escaped" role="status">
                <span class="escaped__word">탈출 성공</span>
-               <span class="escaped__sub">파편 ${state.shards}개를 모아 밖으로 나왔다 · 선택 ${
+               <span class="escaped__sub">필드에 파편 ${countShards(
+                 state.field,
+               )}개를 모아 밖으로 나왔다 · 선택 ${
                  state.step
                }회 · 필드 ${state.field.length}장 · 덱 ${state.deck.length}장 남음</span>
              </div>`

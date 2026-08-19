@@ -9,7 +9,7 @@ import {
   TAINT_LEVELS,
 } from './balance';
 import { applyEffects, buildDeck, countKind } from './effects';
-import { curseCounts, drawOne, onEdge, onPlaced } from './field';
+import { countShards, curseCounts, drawOne, onEdge, onPlaced } from './field';
 import { PAIR_TABLE } from './pairs';
 import type {
   CardInstance,
@@ -111,7 +111,6 @@ export function createGame(rng: Rng): GameState {
   const state: GameState = {
     step: 1,
     deck: buildDeck(STARTING_DECK),
-    shards: 0,
     escapeTarget: ESCAPE_TARGET,
     escaped: false,
     hp: MAX_HP,
@@ -144,7 +143,7 @@ export function createGame(rng: Rng): GameState {
   remember(state, state.current);
   state.log.push(
     `시작. 덱 ${state.deck.length}장, 필드 ${state.field.length}장, 체력 ${MAX_HP}. ` +
-      `탈출구 파편 0/${ESCAPE_TARGET}.`,
+      `필드 파편 0/${ESCAPE_TARGET} (덱에서 뽑아야 진척이 된다).`,
   );
 
   return state;
@@ -242,7 +241,7 @@ function die(state: GameState): void {
   state.causeOfDeath = cause;
   state.log.push(
     `사망 — ${cause}. 필드 ${state.field.length}장, 덱 ${state.deck.length}장 남음, ` +
-      `파편 ${state.shards}/${state.escapeTarget}.`,
+      `필드 파편 ${countShards(state.field)}/${state.escapeTarget}.`,
   );
 }
 
@@ -310,11 +309,13 @@ function advance(state: GameState, rng: Rng): void {
     return;
   }
 
-  if (state.shards >= state.escapeTarget) {
+  // 탈출은 **필드에 나온** 파편으로만 센다. 덱에 아무리 많아도 뽑지 못하면
+  // 진척이 아니다 — 덱 관리가 곧 탈출이다.
+  if (countShards(state.field) >= state.escapeTarget) {
     state.escaped = true;
     state.current = null;
     state.log.push(
-      `탈출 성공 — 파편 ${state.shards}/${state.escapeTarget}. ` +
+      `탈출 성공 — 필드 파편 ${countShards(state.field)}/${state.escapeTarget}. ` +
         `필드 ${state.field.length}장, 덱 ${state.deck.length}장 남음.`,
     );
     return;

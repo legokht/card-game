@@ -208,7 +208,12 @@ export interface GameState {
   field: CardInstance[];
   /** 푸시 유어 럭 진행 중이면 채워진다. */
   push: PushState | null;
-  shards: number;
+  /**
+   * 탈출에 필요한 **필드** 파편 장수.
+   *
+   * 진척은 따로 세지 않는다 — 필드에 나온 파편이 곧 진척이라
+   * `countShards(state.field)`가 언제나 정답이다.
+   */
   escapeTarget: number;
   escaped: boolean;
   /** 체력이 0이 되면 끝난다. */
