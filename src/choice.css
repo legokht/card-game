@@ -430,8 +430,56 @@ b {
   font-variant-numeric: tabular-nums;
 }
 
-.field__rot {
-  color: #c58f6a;
+/* 문턱에 닿기 직전인 종류는 배지 자체가 경고가 된다. */
+.cursekind.is-near {
+  animation: pulse-near 1.6s ease-in-out infinite;
+  font-weight: 600;
+}
+
+.cursekind--doom.is-near {
+  color: #ffd0d0;
+  border-color: #d05a5a;
+  background: rgba(150, 30, 30, 0.45);
+}
+
+.cursekind--rot.is-near {
+  color: #f0cda0;
+  border-color: #c08c48;
+  background: rgba(150, 90, 30, 0.35);
+}
+
+.cursekind--erode.is-near {
+  color: #dcb0ea;
+  border-color: #a86ac0;
+  background: rgba(123, 74, 142, 0.45);
+}
+
+@keyframes pulse-near {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 currentColor;
+  }
+  50% {
+    box-shadow: 0 0 9px 0 currentColor;
+  }
+}
+
+/* 부패가 다음에 몇 장을 썩힐지 미리 알려준다. 모르고 누르면 사고다. */
+.rotpreview {
+  margin: 0;
+  padding: 7px 11px;
+  font-size: 12.5px;
+  color: #e8c49a;
+  background: rgba(80, 48, 18, 0.4);
+  border: 1px solid #a8763c;
+  border-radius: 2px;
+}
+
+.rotpreview b {
+  font-family: var(--mono);
+  font-size: 14px;
+  color: #ffd9a8;
+  font-variant-numeric: tabular-nums;
 }
 
 /* "한 장 더 뽑으면 겹친다"를 계산 없이 알려주는 줄. */

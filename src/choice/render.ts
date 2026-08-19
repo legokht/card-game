@@ -1,6 +1,6 @@
-import { CURSE_RULES, ROT_DRAIN } from './balance';
+import { CURSE_RULES } from './balance';
 import { deckByKind, deckCurseBreakdown, fieldCurseBreakdown, summarize } from './engine';
-import { curseCounts, onEdge } from './field';
+import { onEdge, rotPreview } from './field';
 import type {
   CardInstance,
   CardKind,
@@ -91,7 +91,8 @@ function lastingPanel(state: GameState): string {
  */
 function fieldPanel(state: GameState): string {
   const edged = onEdge(state.field);
-  const counts = curseCounts(state.field);
+  const onField = fieldCurseBreakdown(state);
+  const nextRot = rotPreview(state.field);
 
   const cards = state.field
     .map((card: CardInstance) => {
@@ -112,19 +113,29 @@ function fieldPanel(state: GameState): string {
     })
     .join('');
 
-  const warnings = edged
-    .map(
-      (t) =>
-        `<span class="edgewarn edgewarn--${t}">${CURSE_RULES[t].name} 1장 — 겹치면 ${CURSE_RULES[t].description}</span>`,
-    )
+  /**
+   * 종류별 현재 장수와 발동 문턱을 함께 보여준다 — "파멸 2/3".
+   * 문턱에 닿기 직전이면 강하게 경고한다. 침식은 문턱이 없어 장수만 센다.
+   */
+  const tally = (Object.keys(CURSE_RULES) as CurseType[])
+    .map((t) => {
+      const rule = CURSE_RULES[t];
+      const n = onField[t];
+      const near = edged.includes(t);
+      const meter = rule.threshold === null ? `${n}` : `${n}/${rule.threshold}`;
+      return `<span class="cursekind cursekind--${t}${near ? ' is-near' : ''}"
+        title="${rule.name} — ${rule.target}을(를) 노린다. ${rule.description}"
+        >${rule.name} <b>${meter}</b></span>`;
+    })
     .join('');
 
-  const onField = fieldCurseBreakdown(state);
-  const tally = (Object.keys(CURSE_RULES) as CurseType[])
-    .map(
-      (t) =>
-        `<span class="cursekind cursekind--${t}">${CURSE_RULES[t].name} <b>${onField[t]}</b></span>`,
-    )
+  const warnings = edged
+    .map((t) => {
+      const rule = CURSE_RULES[t];
+      const left = (rule.threshold ?? 0) - onField[t];
+      const head = left <= 1 ? `${rule.name} 한 장만 더면` : `${rule.name} ${left}장 더면`;
+      return `<span class="edgewarn edgewarn--${t}">${head} — ${rule.description}</span>`;
+    })
     .join('');
 
   return `
@@ -132,13 +143,13 @@ function fieldPanel(state: GameState): string {
       <div class="field__head">
         <span class="field__label">필드 <b>${state.field.length}</b>장</span>
         <span class="field__tally">${tally}</span>
-        ${
-          counts.rot > 0
-            ? `<span class="field__rot">부패가 매 선택 체력 -${counts.rot * ROT_DRAIN}</span>`
-            : ''
-        }
       </div>
       ${warnings ? `<div class="edgewarns">${warnings}</div>` : ''}
+      ${
+        nextRot > 0
+          ? `<p class="rotpreview">다음 부패가 놓이면 — 덱에서 <b>${nextRot}장</b>이 부패로 바뀐다</p>`
+          : ''
+      }
       <div class="fcards">${cards || '<p class="fcards__empty">아직 아무것도 펼치지 않았다</p>'}</div>
     </section>`;
 }

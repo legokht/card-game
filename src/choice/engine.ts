@@ -9,7 +9,7 @@ import {
   TAINT_LEVELS,
 } from './balance';
 import { applyEffects, buildDeck, countKind } from './effects';
-import { applyRotDrain, curseCounts, drawOne, onEdge, resolvePairs } from './field';
+import { curseCounts, drawOne, onEdge, onPlaced } from './field';
 import { PAIR_TABLE } from './pairs';
 import type {
   CardInstance,
@@ -130,6 +130,9 @@ export function createGame(rng: Rng): GameState {
     records: [],
     lasting: [],
     triggers: { doom: 0, rot: 0, erode: 0 },
+    peakField: { doom: 0, rot: 0, erode: 0 },
+    erodeDamage: 0,
+    rotConverted: 0,
     causeOfDeath: null,
     fieldSizes: [],
     riskyDraws: { taken: 0, paired: 0 },
@@ -178,13 +181,8 @@ export function choose(state: GameState, side: 'red' | 'blue', rng: Rng): void {
   const changes = tickLasting(state, side);
   changes.push(...applyEffects(state, option.effects, rng));
 
-  // 겹침은 뽑을 때 처리되지만, 필드에 저주를 놓는 경로가 뽑기만은 아니다
-  // (침식의 변환, 앞으로 추가될 효과들). 매 선택 끝에 한 번 더 확인해
-  // "같은 저주 2장이 필드에 남아 있는" 상태가 생기지 않게 못박는다.
-  for (const t of resolvePairs(state, rng)) changes.push(...t.lines);
-
-  // 필드의 부패는 겹치지 않아도 매 선택마다 갉아먹는다.
-  changes.push(...applyRotDrain(state));
+  // 저주는 필드에 놓이는 순간 뽑기 쪽에서 이미 판정됐다. 매 선택 끝에
+  // 필드를 다시 훑지 않는다 — 그러면 같은 저주가 반복 발동한다.
   state.fieldSizes.push(state.field.length);
   noteDeckEmpty(state);
 
@@ -238,15 +236,14 @@ function die(state: GameState): void {
   state.current = null;
   state.push = null;
 
-  // 마지막에 발동한 저주가 사인이다. 파멸이면 즉사, 아니면 누적 피해.
-  const last = state.log.slice(-6).reverse();
-  const cause = last.find((l) => l.includes('파멸이 완성'))
-    ? '파멸 2장이 겹쳤다'
-    : last.find((l) => l.includes('부패가 터졌다'))
-      ? '부패가 터졌다'
-      : last.find((l) => l.includes('갉아먹는다'))
-        ? '필드의 부패에 갉아먹혔다'
-        : '체력이 바닥났다';
+  // 마지막 몇 줄에서 사인을 읽는다. 저주마다 노리는 것이 달라서, 무엇에
+  // 죽었는지가 곧 "이번 판은 어느 저주가 위험했는가"의 답이 된다.
+  const last = state.log.slice(-8).reverse();
+  const cause = last.find((l) => l.includes('즉사'))
+    ? '파멸이 쌓였다'
+    : last.find((l) => l.includes('침식이 놓였다'))
+      ? '침식에 체력이 깎였다'
+      : '체력이 바닥났다';
   state.causeOfDeath = cause;
   state.log.push(
     `사망 — ${cause}. 필드 ${state.field.length}장, 덱 ${state.deck.length}장 남음, ` +
@@ -277,12 +274,12 @@ export function pushDraw(state: GameState, rng: Rng): void {
   push.drawn += 1;
   push.log.push(`${push.drawn}장째 — ${card.name}`);
 
-  const triggered = resolvePairs(state, rng);
-  if (triggered.length > 0) {
+  const triggered = onPlaced(state, card, rng);
+  if (triggered) {
     if (edged) state.riskyDraws.paired += 1;
-    for (const t of triggered) push.log.push(...t.lines);
+    push.log.push(...triggered.lines);
     push.stopped = true;
-    push.log.push('겹쳤다 — 뽑기가 여기서 끝난다');
+    push.log.push('저주가 발동했다 — 뽑기가 여기서 끝난다');
   }
 }
 

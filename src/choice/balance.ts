@@ -123,59 +123,84 @@ export const CARD_POOL: CardDef[] = [
  */
 export const FIELD_START = 0;
 
+/* ---------- 저주 문턱과 피해 ---------- */
+
+/**
+ * 파멸이 터지는 필드 장수. 이 수만큼 필드에 모이면 즉사한다.
+ * 그래서 **2장인 상태가 최대 긴장 구간**이다.
+ */
+export const DOOM_THRESHOLD = 3;
+
+/**
+ * 부패가 발동하는 필드 장수.
+ *
+ * 필드에 이 수 이상 있는 상태에서 **부패가 새로 놓일 때** 1회 발동한다.
+ * 매 선택마다 반복되지 않는다.
+ */
+export const ROT_THRESHOLD = 2;
+
+/** 침식이 필드에 놓일 때마다 깎이는 체력. 문턱도 중첩도 없다. */
+export const ERODE_DAMAGE = 2;
+
 export interface CurseRule {
   type: CurseType;
   name: string;
   /**
    * 덱에 이 종류가 최대 몇 장까지 들어갈 수 있는지.
-   * 파멸은 즉사라서 아주 적게 유지해야 "1장만 보여도 긴장"이 성립한다.
+   * 파멸은 즉사라서 아주 적게 유지해야 "한 장만 더면 끝"이 성립한다.
    */
   deckMax: number;
   /** 저주를 새로 넣을 때의 상대 가중치. */
   weight: number;
   /**
-   * 발동한 2장의 행선지. 카드는 덱으로 돌아가지 않으므로 지금은 전부 소멸이다.
-   * 되돌리는 규칙이 생기면 여기서 갈린다.
+   * 발동에 필요한 필드 장수. 없으면 놓이는 즉시 발동한다(침식).
+   * UI가 "파멸 2/3"처럼 현재 장수와 함께 보여준다.
    */
-  afterTrigger: 'gone';
-  /** 겹쳤을 때 무슨 일이 일어나는지. "겹치면 ___" 형태로 이어 붙여 쓴다. */
+  threshold: number | null;
+  /** 무엇을 공격하는지 한 단어로. 세 저주는 공격 대상이 서로 다르다. */
+  target: string;
+  /** 발동하면 무슨 일이 일어나는지. */
   description: string;
 }
 
+/**
+ * 세 저주는 **공격 대상이 모두 다르다.**
+ *
+ * - 파멸은 목숨을 노린다 — 문턱이 높지만 결과가 최악이다.
+ * - 부패는 덱을 노린다 — 자기 자신을 늘려 계단식으로 나빠진다.
+ * - 침식은 체력을 노린다 — 문턱 없이 매번 조금씩.
+ *
+ * 그래서 "지금 뭐가 제일 위험한가"가 상황마다 달라진다.
+ */
 export const CURSE_RULES: Record<CurseType, CurseRule> = {
   doom: {
     type: 'doom',
     name: '파멸',
     deckMax: 3,
     weight: 1,
-    afterTrigger: 'gone',
-    description: '즉사한다',
+    threshold: DOOM_THRESHOLD,
+    target: '목숨',
+    description: `필드에 ${DOOM_THRESHOLD}장 모이면 즉사한다`,
   },
   rot: {
     type: 'rot',
     name: '부패',
     deckMax: 99,
     weight: 2,
-    afterTrigger: 'gone',
-    description: '크게 터진다',
+    threshold: ROT_THRESHOLD,
+    target: '덱',
+    description: `필드에 ${ROT_THRESHOLD}장 이상일 때 하나 더 놓이면, 그 장수만큼 덱의 카드가 부패로 바뀐다`,
   },
   erode: {
     type: 'erode',
     name: '침식',
     deckMax: 99,
     weight: 3,
-    // 필드에서 벗어난 카드는 어디로도 돌아가지 않는다.
-    afterTrigger: 'gone',
-    description: '멀쩡한 카드가 저주로 바뀐다',
+    threshold: null,
+    target: '체력',
+    description: `필드에 놓일 때마다 체력 -${ERODE_DAMAGE}`,
   },
 };
-
-/** 필드의 부패 한 장당 매 선택 깎이는 체력. */
-export const ROT_DRAIN = 1;
-/** 부패 2장이 겹쳤을 때 한 번에 깎이는 체력. */
-export const ROT_BURST = 4;
-/** 침식 2장이 겹쳤을 때 저주로 바뀌는 필드 카드 수. */
-export const ERODE_CONVERT = 2;
 
 /** 저주를 새로 만들 때 종류를 고른다. 덱 상한을 넘는 종류는 제외된다. */
 export function curseWeights(deckCounts: Record<CurseType, number>): CurseType[] {

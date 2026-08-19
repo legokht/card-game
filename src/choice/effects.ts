@@ -8,7 +8,7 @@ import {
   purgeAll,
   purgeCurse,
   purgeRandom,
-  resolvePairs,
+  resolvePlaced,
 } from './field';
 import type {
   CardInstance,
@@ -282,8 +282,10 @@ export function grantToField(
   count: number,
   rng: Rng,
 ): string[] {
+  // 보상·중립만 들어오므로 저주 발동은 없지만, 필드 최고치 기록은 갱신해야 한다.
+  const before = state.field.length;
   const lines = addToField(state, kind, count, rng);
-  for (const t of resolvePairs(state, rng)) lines.push(...t.lines);
+  for (const t of resolvePlaced(state, state.field.slice(before), rng)) lines.push(...t.lines);
   return lines;
 }
 

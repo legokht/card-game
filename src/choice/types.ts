@@ -2,11 +2,11 @@
 export type CardKind = 'reward' | 'curse' | 'neutral' | 'shard';
 
 /**
- * 저주 종류. 손패에 같은 종류가 2장 모이면 발동한다.
+ * 저주 종류. 셋 다 **필드에 놓이는 순간** 판정하고, 공격 대상이 서로 다르다.
  *
- * - `doom` 파멸: 겹치면 즉사. 덱에 아주 적게만 존재한다.
- * - `rot` 부패: 손패에 있는 동안 매 선택마다 체력이 깎인다. 겹치면 크게 터진다.
- * - `erode` 침식: 겹치면 손패의 멀쩡한 카드가 저주로 바뀐다.
+ * - `doom` 파멸 → 목숨: 필드에 3장 모이면 즉사. 문턱이 높지만 결과가 최악이다.
+ * - `rot` 부패 → 덱: 2장 이상일 때 하나 더 놓이면 그 장수만큼 덱이 썩는다.
+ * - `erode` 침식 → 체력: 문턱 없이 놓일 때마다 체력이 깎인다.
  */
 export type CurseType = 'doom' | 'rot' | 'erode';
 
@@ -19,7 +19,7 @@ export interface CardDef {
    * 무엇을 집을지 정하는 데 쓰인다.
    */
   value: number;
-  /** 저주일 때만 있다. 손패에서 같은 종류가 2장 모이면 발동한다. */
+  /** 저주일 때만 있다. 종류마다 발동 조건과 공격 대상이 다르다. */
   curseType?: CurseType;
 }
 
@@ -190,7 +190,7 @@ export interface PairStat {
 export interface PushState {
   /** 지금까지 이 판에서 뽑은 장수. */
   drawn: number;
-  /** 저주가 겹쳐 강제로 끝났으면 true. */
+  /** 저주가 발동해 강제로 끝났으면 true. */
   stopped: boolean;
   log: string[];
 }
@@ -202,9 +202,9 @@ export interface GameState {
   /**
    * 필드. 뽑은 카드는 여기 펼쳐진 채로 계속 남는다.
    *
-   * 카드는 덱 → 필드 한 방향으로만 흐른다. 필드에서 벗어나는 길은 둘뿐이다:
-   * 선택지를 통한 제거, 그리고 같은 저주 2장이 겹쳐 소멸하는 것.
-   * 그래서 필드는 스스로 줄지 않고, 뽑을수록 겹칠 확률이 올라간다.
+   * 카드는 덱 → 필드 한 방향으로만 흐르고, 벗어나는 길은 선택지를 통한
+   * 제거뿐이다 — 발동한 저주도 필드에 남는다. 그래서 필드는 스스로 줄지
+   * 않고, 뽑을수록 위험이 올라간다.
    */
   field: CardInstance[];
   /** 푸시 유어 럭 진행 중이면 채워진다. */
@@ -240,19 +240,30 @@ export interface GameState {
   records: ChoiceRecord[];
   /** 저주 종류별 발동 횟수. */
   triggers: Record<CurseType, number>;
+  /**
+   * 저주 종류별로 필드에 동시에 몇 장까지 쌓였는지.
+   *
+   * "한 종류만 계속 죽이거나 한 종류가 존재감이 없는지"를 보는 값이다.
+   * 발동 횟수만으로는 문턱이 높은 파멸이 늘 적게 보인다.
+   */
+  peakField: Record<CurseType, number>;
+  /** 침식이 지금까지 깎은 체력 총합. */
+  erodeDamage: number;
+  /** 부패가 지금까지 덱에서 썩힌 카드 총 장수. */
+  rotConverted: number;
   /** 사망 원인. 저주가 겹쳐 죽었으면 그 종류. */
   causeOfDeath: string | null;
   /** 매 선택 후의 필드 크기. 평균을 내기 위한 것. */
   fieldSizes: number[];
-  /** 필드에 저주 1장이 있는 상태에서 더 뽑은 횟수와, 그때 겹쳐버린 횟수. */
+  /** 문턱 직전 상태에서 더 뽑은 횟수와, 그때 실제로 터진 횟수. */
   riskyDraws: { taken: number; paired: number };
   /** 덱이 바닥난 시점의 선택 번호. 아직이면 null. */
   deckEmptiedAt: number | null;
   /**
-   * 저주가 처음 겹쳐 발동한 선택 번호. 아직이면 null.
+   * 저주가 처음 발동한 선택 번호. 아직이면 null.
    *
-   * 시작 덱에 저주를 종류별로 한 장씩 넣은 목적이 "초반부터 한 장만 더
-   * 들어오면 겹친다는 긴장"이므로, 그 긴장이 실제로 언제 터지는지를 잰다.
+   * 시작 덱에 저주를 종류별로 한 장씩 넣은 목적이 "초반부터 긴장"이므로,
+   * 그 긴장이 실제로 언제 터지는지를 잰다.
    */
   firstPairAt: number | null;
 }

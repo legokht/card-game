@@ -1,26 +1,26 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { Rng } from '../src/engine/rng';
 import {
-  applyRotDrain,
   curseCounts,
   drawToField,
   makeCurse,
   onEdge,
+  onPlaced,
   peek,
   purgeAll,
   purgeCurse,
   purgeRandom,
-  resolvePairs,
+  rotPreview,
 } from '../src/choice/field';
 import { choose, createGame, pushDraw, pushStop } from '../src/choice/engine';
-import { applyEffects, countKind, resetUidCounter } from '../src/choice/effects';
+import { applyEffects, resetUidCounter } from '../src/choice/effects';
 import { PAIR_TABLE } from '../src/choice/pairs';
 import {
   CURSE_RULES,
-  ERODE_CONVERT,
+  DOOM_THRESHOLD,
+  ERODE_DAMAGE,
   FIELD_START,
-  ROT_BURST,
-  ROT_DRAIN,
+  ROT_THRESHOLD,
 } from '../src/choice/balance';
 import type { CardInstance, ChoicePair, CurseType, Effect, GameState } from '../src/choice/types';
 
@@ -106,137 +106,195 @@ describe('시작 필드', () => {
   });
 });
 
-describe('저주 겹침', () => {
-  it('같은 종류가 2장 모이면 발동하고 필드에서 빠진다', () => {
-    const state = createGame(new Rng('pair'));
-    state.field = [plain(), curse('erode'), curse('erode')];
+/** 필드에 카드를 직접 놓고 그 장에 대한 발동 판정만 돌린다. */
+function place(state: GameState, card: CardInstance, seed = 'place') {
+  state.field.push(card);
+  return onPlaced(state, card, new Rng(seed));
+}
 
-    const results = resolvePairs(state, new Rng('pair'));
-
-    expect(results).toHaveLength(1);
-    expect(results[0]!.type).toBe('erode');
-    expect(countKind(state.field, 'curse')).toBeLessThan(2);
-    expect(state.triggers.erode).toBe(1);
-  });
-
-  it('종류가 다르면 2장이어도 발동하지 않는다', () => {
-    const state = createGame(new Rng('mixed'));
-    state.field = [curse('rot'), curse('erode')];
-
-    const results = resolvePairs(state, new Rng('mixed'));
-
-    expect(results).toHaveLength(0);
-    expect(state.field).toHaveLength(2);
-  });
-
-  it('파멸이 겹치면 즉사한다', () => {
+describe('파멸 — 목숨을 노린다', () => {
+  it(`필드에 ${DOOM_THRESHOLD}장 모이면 즉사한다`, () => {
     const state = createGame(new Rng('doom'));
-    state.field = [curse('doom'), curse('doom')];
+    state.field = [];
 
-    const results = resolvePairs(state, new Rng('doom'));
-
-    expect(results[0]!.fatal).toBe(true);
-    expect(state.hp).toBe(0);
-    expect(state.triggers.doom).toBe(1);
-  });
-
-  it('부패가 겹치면 크게 터진다', () => {
-    const state = createGame(new Rng('rot'));
-    state.field = [curse('rot'), curse('rot')];
-    const hp = state.hp;
-
-    resolvePairs(state, new Rng('rot'));
-
-    expect(state.hp).toBe(hp - ROT_BURST);
-  });
-
-  it('침식이 겹치면 필드의 멀쩡한 카드가 저주로 바뀐다', () => {
-    const state = createGame(new Rng('erode'));
-    state.field = [curse('erode'), curse('erode'), plain(), plain(), plain()];
-
-    resolvePairs(state, new Rng('erode'));
-
-    // 침식 2장은 빠지고, 남은 멀쩡한 카드 중 일부가 저주가 된다.
-    expect(state.field).toHaveLength(3);
-    expect(countKind(state.field, 'curse')).toBe(ERODE_CONVERT);
-  });
-
-  it('발동한 저주는 덱으로 돌아가지 않고 소멸한다', () => {
-    for (const type of ['erode', 'rot'] as const) {
-      resetUidCounter();
-      const state = createGame(new Rng(`gone-${type}`));
-      state.deck = [];
-      state.field = [curse(type), curse(type), plain()];
-
-      const originals = state.field.filter((c) => c.curseType === type).map((c) => c.uid);
-      resolvePairs(state, new Rng(`gone-${type}`));
-
-      // 필드는 한 방향이다. 벗어난 카드는 어디로도 돌아가지 않는다.
-      expect(state.deck).toHaveLength(0);
-      // 겹친 그 2장은 사라진다. (침식은 그 자리에 새 저주를 만들 수 있으므로
-      // 종류가 아니라 원래 카드의 uid로 확인한다.)
-      for (const uid of originals) expect(state.field.some((c) => c.uid === uid)).toBe(false);
+    for (let i = 1; i < DOOM_THRESHOLD; i++) {
+      expect(place(state, curse('doom')), `${i}장째`).toBeNull();
+      expect(state.dead).toBe(false);
     }
+
+    const last = place(state, curse('doom'));
+    expect(last?.fatal).toBe(true);
+    expect(state.hp).toBe(0);
   });
 
-  it('여러 종류가 동시에 겹쳐도 전부 처리된다', () => {
-    const state = createGame(new Rng('multi'));
-    state.field = [curse('rot'), curse('rot'), curse('erode'), curse('erode'), plain()];
+  it(`${DOOM_THRESHOLD - 1}장까지는 아무 일도 없다 — 최대 긴장 구간`, () => {
+    const state = createGame(new Rng('doom-edge'));
+    state.field = [];
+    const hp = state.hp;
+    for (let i = 0; i < DOOM_THRESHOLD - 1; i++) place(state, curse('doom'));
 
-    const results = resolvePairs(state, new Rng('multi'));
+    expect(state.hp).toBe(hp);
+    expect(state.triggers.doom).toBe(0);
+    expect(onEdge(state.field)).toContain('doom');
+  });
 
-    expect(results.map((r) => r.type).sort()).toEqual(['erode', 'rot']);
+  it('발동해도 필드에서 사라지지 않는다', () => {
+    const state = createGame(new Rng('doom-stay'));
+    state.field = [];
+    for (let i = 0; i < DOOM_THRESHOLD; i++) place(state, curse('doom'));
+    expect(curseCounts(state.field).doom).toBe(DOOM_THRESHOLD);
   });
 });
 
-describe('저주 1장 — 가장 긴장되는 상태', () => {
-  it('정확히 1장 있는 종류를 알려준다', () => {
-    const state = createGame(new Rng('edge'));
-    state.field = [curse('doom'), curse('rot'), curse('rot'), plain()];
+describe('부패 — 덱을 노린다', () => {
+  it(`${ROT_THRESHOLD}장이 되는 순간 그 장수만큼 덱이 썩는다`, () => {
+    const state = createGame(new Rng('rot'));
+    state.field = [];
+    const cleanBefore = state.deck.filter((c) => c.kind !== 'curse').length;
 
-    // 파멸은 1장(위험), 부패는 2장이라 이미 겹친 상태다.
-    expect(onEdge(state.field)).toEqual(['doom']);
+    place(state, curse('rot'));
+    expect(state.triggers.rot).toBe(0);
+
+    place(state, curse('rot'));
+    expect(state.triggers.rot).toBe(1);
+    expect(state.rotConverted).toBe(ROT_THRESHOLD);
+    expect(state.deck.filter((c) => c.kind !== 'curse').length).toBe(cleanBefore - ROT_THRESHOLD);
+  });
+
+  it('3장째가 놓이면 3장이 썩는다 — 계단식으로 나빠진다', () => {
+    const state = createGame(new Rng('rot-3'));
+    state.field = [];
+    place(state, curse('rot'));
+    place(state, curse('rot'));
+    const after2 = state.rotConverted;
+
+    place(state, curse('rot'));
+    expect(state.rotConverted - after2).toBe(3);
+  });
+
+  it('체력은 건드리지 않는다 — 부패가 노리는 것은 덱이다', () => {
+    const state = createGame(new Rng('rot-hp'));
+    state.field = [];
+    const hp = state.hp;
+    place(state, curse('rot'));
+    place(state, curse('rot'));
+    expect(state.hp).toBe(hp);
+  });
+
+  it('발동해도 필드에 남는다', () => {
+    const state = createGame(new Rng('rot-stay'));
+    state.field = [];
+    place(state, curse('rot'));
+    place(state, curse('rot'));
+    expect(curseCounts(state.field).rot).toBe(2);
+  });
+
+  it('새로 놓일 때만 발동한다 — 선택마다 반복되지 않는다', () => {
+    const rng = new Rng('rot-once');
+    const state = createGame(rng);
+    state.field = [];
+    place(state, curse('rot'));
+    place(state, curse('rot'));
+    const converted = state.rotConverted;
+
+    // 부패를 필드에 둔 채 부패와 무관한 선택을 해도 다시 썩지 않는다.
+    state.current = pairFrom('quality-or-bulk');
+    choose(state, 'red', rng);
+
+    expect(state.rotConverted).toBe(converted);
+  });
+
+  it('덱에 바꿀 카드가 없으면 그냥 넘어간다', () => {
+    const state = createGame(new Rng('rot-empty'));
+    state.field = [];
+    state.deck = [];
+    place(state, curse('rot'));
+    const r = place(state, curse('rot'));
+    expect(r?.lines.join()).toContain('없었');
+    expect(state.rotConverted).toBe(0);
+  });
+
+  it('다음에 몇 장이 썩을지 미리 알 수 있다', () => {
+    const state = createGame(new Rng('preview'));
+    state.field = [];
+    expect(rotPreview(state.field)).toBe(0);
+
+    state.field.push(curse('rot'));
+    expect(rotPreview(state.field)).toBe(2);
+
+    state.field.push(curse('rot'));
+    expect(rotPreview(state.field)).toBe(3);
+  });
+});
+
+describe('침식 — 체력을 노린다', () => {
+  it(`놓이는 즉시 체력 -${ERODE_DAMAGE}`, () => {
+    const state = createGame(new Rng('erode'));
+    state.field = [];
+    const hp = state.hp;
+
+    place(state, curse('erode'));
+    expect(state.hp).toBe(hp - ERODE_DAMAGE);
+    expect(state.erodeDamage).toBe(ERODE_DAMAGE);
+  });
+
+  it('문턱도 중첩도 없다 — 놓일 때마다 매번', () => {
+    const state = createGame(new Rng('erode-many'));
+    state.field = [];
+    const hp = state.hp;
+
+    for (let i = 0; i < 3; i++) place(state, curse('erode'));
+    expect(state.hp).toBe(hp - ERODE_DAMAGE * 3);
+    expect(state.triggers.erode).toBe(3);
+    expect(onEdge(state.field)).not.toContain('erode');
+  });
+
+  it('덱도 필드도 바꾸지 않는다', () => {
+    const state = createGame(new Rng('erode-only'));
+    state.field = [];
+    const deckBefore = state.deck.map((c) => c.uid).join();
+
+    place(state, curse('erode'));
+    expect(state.deck.map((c) => c.uid).join()).toBe(deckBefore);
+    expect(curseCounts(state.field).erode).toBe(1);
+  });
+});
+
+describe('저주는 서로 간섭하지 않는다', () => {
+  it('종류가 다르면 각자의 문턱으로 센다', () => {
+    const state = createGame(new Rng('mixed'));
+    state.field = [];
+    const hp = state.hp;
+
+    place(state, curse('doom'));
+    place(state, curse('rot'));
+    expect(state.dead).toBe(false);
+    expect(state.triggers.rot).toBe(0);
+    expect(state.hp).toBe(hp);
+  });
+
+  it('종류별 필드 최고 도달 장수를 기록한다', () => {
+    const state = createGame(new Rng('peak'));
+    state.field = [];
+    place(state, curse('rot'));
+    place(state, curse('rot'));
+    purgeCurse(state, 9, 'rot');
+    place(state, curse('rot'));
+
+    expect(state.peakField.rot).toBe(2);
+  });
+});
+
+describe('문턱 경고', () => {
+  it('한 장만 더 놓이면 터지는 종류를 알려준다', () => {
+    const field = [curse('doom'), curse('doom'), curse('rot')];
+    const edged = onEdge(field);
+    expect(edged).toContain('doom');
+    expect(edged).toContain('rot');
   });
 
   it('저주가 없으면 빈 목록이다', () => {
-    const state = createGame(new Rng('clean'));
-    state.field = [plain(), plain()];
-    expect(onEdge(state.field)).toEqual([]);
-  });
-});
-
-describe('부패의 지속 피해', () => {
-  it('필드에 있는 동안 매 선택마다 갉아먹는다', () => {
-    const state = createGame(new Rng('drain'));
-    state.field = [curse('rot'), plain()];
-    const hp = state.hp;
-
-    applyRotDrain(state);
-
-    expect(state.hp).toBe(hp - ROT_DRAIN);
-  });
-
-  it('장수에 비례한다', () => {
-    const state = createGame(new Rng('drain2'));
-    // 겹치지 않게 필드에 직접 세 장을 두고 지속 피해만 본다.
-    state.field = [curse('rot'), curse('rot'), curse('rot')];
-    const hp = state.hp;
-
-    applyRotDrain(state);
-
-    expect(state.hp).toBe(hp - 3 * ROT_DRAIN);
-  });
-
-  it('선택할 때마다 실제로 적용된다', () => {
-    const rng = new Rng('drain-loop');
-    const state = createGame(rng);
-    state.field = [curse('rot')];
-    state.current = pairFrom('quality-or-bulk');
-    const hp = state.hp;
-
-    choose(state, 'blue', rng);
-
-    expect(state.hp).toBeLessThan(hp);
+    expect(onEdge([plain(), plain()])).toEqual([]);
   });
 });
 
@@ -407,10 +465,11 @@ describe('푸시 유어 럭', () => {
     expect(state.step).toBe(step + 1);
   });
 
-  it('저주 1장을 들고 더 뽑은 횟수와 겹친 횟수를 센다', () => {
+  it('문턱 직전에 더 뽑은 횟수와 실제로 터진 횟수를 센다', () => {
     const { state, rng } = openPush('risky');
-    state.field = [curse('erode')];
-    state.deck = [curse('erode')];
+    // 부패 1장 = 문턱(2) 직전. 여기서 부패를 하나 더 뽑으면 터진다.
+    state.field = [curse('rot')];
+    state.deck = [curse('rot')];
 
     pushDraw(state, rng);
 
@@ -423,10 +482,12 @@ describe('기록', () => {
   it('사망 원인이 남는다', () => {
     const rng = new Rng('cause');
     const state = createGame(rng);
+    // 파멸 2장이 깔린 상태에서 세 번째를 뽑으면 즉사한다.
     state.field = [curse('doom'), curse('doom')];
-    state.current = pairFrom('quality-or-bulk');
+    state.deck = [curse('doom')];
+    state.current = pairFrom('swell');
 
-    choose(state, 'blue', rng);
+    choose(state, 'blue', rng); // 덱에서 1장을 펼친다
 
     expect(state.dead).toBe(true);
     expect(state.causeOfDeath).toContain('파멸');
