@@ -14,7 +14,8 @@ import {
   SEAL_TURNS,
   STARTING_DECK,
 } from '../src/choice/balance';
-import type { ChoicePair, Effect, GameState } from '../src/choice/types';
+import { curseCounts } from '../src/choice/field';
+import type { ChoicePair, CurseType, Effect, GameState } from '../src/choice/types';
 
 beforeEach(() => {
   resetUidCounter();
@@ -119,6 +120,26 @@ describe('짝 테이블', () => {
       expect(state.current.id).not.toBe(last);
       last = state.current.id;
     }
+  });
+});
+
+describe('시작 덱', () => {
+  it('저주가 종류별로 한 장씩 들어 있다', () => {
+    const state = createGame(new Rng('start'));
+    const counts = curseCounts(state.deck);
+    for (const t of Object.keys(CURSE_RULES) as CurseType[]) {
+      expect(counts[t], t).toBe(1);
+    }
+  });
+
+  it('총 장수는 20장 그대로다', () => {
+    expect(STARTING_DECK).toHaveLength(20);
+    expect(createGame(new Rng('size')).deck).toHaveLength(20);
+  });
+
+  it('필드는 여전히 비어서 시작한다', () => {
+    // 긴장은 덱에 심어 두는 것이지 필드에 미리 깔아 두는 것이 아니다.
+    expect(createGame(new Rng('field')).field).toHaveLength(0);
   });
 });
 
@@ -262,6 +283,8 @@ describe('효과 적용', () => {
 
   it('지울 카드가 모자라면 있는 만큼만 지우고 넘어간다', () => {
     const state = createGame(new Rng('short'));
+    // 시작 덱에는 저주가 종류별로 한 장씩(3장) 들어 있다. 먼저 비운다.
+    apply(state, [{ type: 'removeKind', kind: 'curse', count: 99 }]);
     expect(countKind(state.deck, 'curse')).toBe(0);
 
     const changes = apply(state, [{ type: 'removeKind', kind: 'curse', count: 3 }]);
@@ -310,6 +333,8 @@ describe('효과 적용', () => {
     };
 
     const poor = createGame(new Rng('cond-a'));
+    // 시작 덱의 저주 3장을 비워야 "3장 미만" 가지가 탄다.
+    apply(poor, [{ type: 'removeKind', kind: 'curse', count: 99 }]);
     apply(poor, [effect]);
     expect(countKind(poor.deck, 'curse')).toBe(1);
 
@@ -330,11 +355,12 @@ describe('효과 적용', () => {
   it('저주는 값싼 카드 정리에 휩쓸리지 않는다', () => {
     const state = createGame(new Rng('sticky'));
     apply(state, [{ type: 'addRandom', kind: 'curse', count: 3 }]);
+    const before = countKind(state.deck, 'curse');
 
     apply(state, [{ type: 'removeExtreme', end: 'lowest', count: 6 }]);
 
     // 저주가 값싸다고 저절로 청소되면 저주 페널티 자체가 성립하지 않는다.
-    expect(countKind(state.deck, 'curse')).toBe(3);
+    expect(countKind(state.deck, 'curse')).toBe(before);
   });
 
   it('파편은 덱에도 들어가고 카운트도 올린다', () => {
@@ -551,13 +577,14 @@ describe('탈출', () => {
 describe('덱 요약', () => {
   it('종류별 장수와 오염도를 센다', () => {
     const state = createGame(new Rng('sum'));
+    const startCurses = countKind(state.deck, 'curse');
     apply(state, [{ type: 'addRandom', kind: 'curse', count: 2 }]);
 
     const s = summarize(state);
     expect(s.total).toBe(state.deck.length + state.field.length);
     expect(s.reward + s.curse + s.neutral + s.shard).toBe(s.total);
-    expect(s.curse).toBe(2);
-    expect(s.taint).toBeCloseTo(2 / s.total);
+    expect(s.curse).toBe(startCurses + 2);
+    expect(s.taint).toBeCloseTo(s.curse / s.total);
     expect(s.taintLabel.length).toBeGreaterThan(0);
   });
 

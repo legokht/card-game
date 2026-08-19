@@ -134,6 +134,7 @@ export function createGame(rng: Rng): GameState {
     fieldSizes: [],
     riskyDraws: { taken: 0, paired: 0 },
     deckEmptiedAt: null,
+    firstPairAt: null,
     pairStats: {},
     rarityStats: { common: 0, uncommon: 0, rare: 0, ultra: 0 },
   };

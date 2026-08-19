@@ -248,4 +248,11 @@ export interface GameState {
   riskyDraws: { taken: number; paired: number };
   /** 덱이 바닥난 시점의 선택 번호. 아직이면 null. */
   deckEmptiedAt: number | null;
+  /**
+   * 저주가 처음 겹쳐 발동한 선택 번호. 아직이면 null.
+   *
+   * 시작 덱에 저주를 종류별로 한 장씩 넣은 목적이 "초반부터 한 장만 더
+   * 들어오면 겹친다는 긴장"이므로, 그 긴장이 실제로 언제 터지는지를 잰다.
+   */
+  firstPairAt: number | null;
 }

@@ -90,6 +90,13 @@ export function resolvePairs(state: GameState, rng: Rng): TriggerResult[] {
 
     const rule = CURSE_RULES[paired];
     state.triggers[paired] += 1;
+
+    // 첫 겹침이 몇 수째에 터졌는지 한 번만 남긴다. 시작 덱에 저주를 넣은
+    // 목적이 "초반부터 긴장"이므로, 그게 실제로 언제 오는지가 지표다.
+    if (state.firstPairAt === null) {
+      state.firstPairAt = state.step;
+      state.log.push(`   첫 겹침 — ${state.step}수째 (${rule.name})`);
+    }
     const lines: string[] = [`${rule.name} 2장이 겹쳤다`];
     let fatal = false;
 
