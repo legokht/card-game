@@ -56,17 +56,8 @@ describe('짝 테이블', () => {
     for (const p of PAIR_TABLE) expect(p.intent.length, p.id).toBeGreaterThan(0);
   });
 
-  it('양쪽 문구가 서로 다르다 — 강제 이벤트만 빼고', () => {
-    // taint-tempo는 양쪽이 같게 **설계된** 짝이다. 선택이 없는 강제
-    // 이벤트로 저주 유입 템포를 담당한다. 버그가 아니다.
-    const forced = new Set(['taint-tempo']);
-    for (const p of PAIR_TABLE) {
-      if (forced.has(p.id)) {
-        expect(p.red.text, p.id).toBe(p.blue.text);
-        continue;
-      }
-      expect(p.red.text, p.id).not.toBe(p.blue.text);
-    }
+  it('양쪽 문구가 서로 다르다', () => {
+    for (const p of PAIR_TABLE) expect(p.red.text, p.id).not.toBe(p.blue.text);
   });
 
   it('참조하는 카드 id가 전부 풀에 있다', () => {

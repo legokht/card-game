@@ -202,16 +202,22 @@ export const PAIR_TABLE: ChoicePair[] = [
   {
     id: 'taint-tempo',
     rarity: 'common',
-    // 양쪽이 동일하다. 선택이 없는 강제 이벤트로, 저주 유입 템포를 담당한다.
-    // 의도적으로 같게 설계된 것이므로 어느 한쪽을 바꾸지 말 것.
-    intent: '선택이 없다 — 저주가 들어오는 속도를 담당하는 강제 이벤트',
+    intent:
+      '저주 유입 템포. 빨강은 분산(확정적이지만 겹침이 느리다), ' +
+      '파랑은 집중(같은 종류가 나올 수 있다). 지금 필드·덱의 저주 구성에 따라 갈린다',
     red: {
-      text: '덱에 저주 1장을 섞어넣는다',
-      effects: [{ type: 'addRandom', kind: 'curse', count: 1 }],
+      // 종류별로 한 장씩이라 파멸이 반드시 1장 섞인다. addRandom과 달리
+      // 덱 상한(파멸 3장)을 거치지 않는다 — "확정적"이 이 쪽의 성질이라서다.
+      text: '저주를 종류별로 각각 1장씩 덱에 섞어넣는다',
+      effects: [
+        { type: 'addSpecific', cardId: 'doom', count: 1 },
+        { type: 'addSpecific', cardId: 'rot', count: 1 },
+        { type: 'addSpecific', cardId: 'erode', count: 1 },
+      ],
     },
     blue: {
-      text: '덱에 저주 1장을 섞어넣는다',
-      effects: [{ type: 'addRandom', kind: 'curse', count: 1 }],
+      text: '무작위 저주 2장을 덱에 섞어넣는다',
+      effects: [{ type: 'addRandom', kind: 'curse', count: 2 }],
     },
   },
 ];
