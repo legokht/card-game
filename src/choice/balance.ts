@@ -81,33 +81,23 @@ export const TAINT_LEVELS = [
 ] as const;
 
 /**
- * 카드 풀.
+ * 카드 풀. **카드는 종류로만 구분한다.**
+ *
+ * 한때는 은빛 검·낡은 단검처럼 이름과 값어치를 하나하나 갖고 있었지만,
+ * 지금 규칙은 종류만 알면 된다 — 보상·중립·저주(파멸/부패/침식)·파편.
+ * 옛 정의는 `retired/cards/`에 남겨 두었고, 이름과 효과는 새로 설계한다.
  *
  * `value`는 "가장 값나가는 것을 버린다" 같은 선택지가 무엇을 집을지 정한다.
- * 시너지는 아직 없으므로 카드에 다른 능력은 없다.
+ * 종류마다 카드가 하나뿐이므로 지금은 종류별 상수와 같다.
  */
 export const CARD_POOL: CardDef[] = [
-  // 보상
-  { id: 'silver-blade', name: '은빛 검', kind: 'reward', value: 4 },
-  { id: 'steel-guard', name: '강철 방패', kind: 'reward', value: 4 },
-  { id: 'rune-spear', name: '룬 창', kind: 'reward', value: 5 },
-  { id: 'firebomb', name: '화염병', kind: 'reward', value: 4 },
-  { id: 'chainmail', name: '사슬갑옷', kind: 'reward', value: 3 },
-  { id: 'hawk-eye', name: '매의 눈', kind: 'reward', value: 3 },
-  { id: 'blessed-cup', name: '축복의 잔', kind: 'reward', value: 6 },
-  { id: 'old-relic', name: '오래된 성물', kind: 'reward', value: 6 },
+  { id: 'reward', name: '보상', kind: 'reward', value: 4 },
+  { id: 'neutral', name: '중립', kind: 'neutral', value: 2 },
 
-  // 저주 — 필드에서 같은 종류가 2장 모이면 발동하고 그 2장은 소멸한다
+  // 저주만 하위 종류가 있다. 종류마다 발동 조건과 노리는 것이 다르다.
   { id: 'doom', name: '파멸', kind: 'curse', curseType: 'doom', value: 0 },
   { id: 'rot', name: '부패', kind: 'curse', curseType: 'rot', value: 1 },
   { id: 'erode', name: '침식', kind: 'curse', curseType: 'erode', value: 1 },
-
-  // 중립
-  { id: 'worn-dagger', name: '낡은 단검', kind: 'neutral', value: 2 },
-  { id: 'wood-shield', name: '나무 방패', kind: 'neutral', value: 2 },
-  { id: 'flint', name: '부싯돌', kind: 'neutral', value: 1 },
-  { id: 'travel-coat', name: '여행자의 외투', kind: 'neutral', value: 2 },
-  { id: 'pocket-knife', name: '주머니칼', kind: 'neutral', value: 1 },
 
   // 파편 — 탈출 진척을 나타낸다
   { id: 'shard', name: '탈출구 파편', kind: 'shard', value: 0 },
@@ -232,37 +222,17 @@ export function curseWeights(deckCounts: Record<CurseType, number>): CurseType[]
  * 한때는 저주가 한 장도 없었다 — "덱에 들어오는 저주는 전부 선택의 결과라야
  * 내가 넣은 저주가 날 죽인다가 성립한다"는 이유였다. 그런데 그러면 초반에
  * 아무 버튼이나 눌러도 되는 구간이 길어진다. 첫 장부터 "한 장만 더 들어오면
- * 겹친다"가 걸려 있어야 선택이 처음부터 선택이 된다.
- *
- * 총 장수는 20장 그대로다. 자리를 만들기 위해 가장 많이 중복되던 중립
- * 세 장(낡은 단검·나무 방패·부싯돌 각 1장)을 뺐다.
+ * 터진다"가 걸려 있어야 선택이 처음부터 선택이 된다.
  *
  * 카드는 덱에서 필드로 한 방향으로만 흐르고 되돌아오지 않으므로, 버린 더미도
  * 재순환도 없다. 이 20장이 한 판에 뽑을 수 있는 전부다.
  */
 export const STARTING_DECK: string[] = [
-  // 저주 — 종류마다 한 장씩. 초반부터 겹침이 걸려 있다.
   'doom',
   'rot',
   'erode',
-
-  'worn-dagger',
-  'worn-dagger',
-  'wood-shield',
-  'wood-shield',
-  'flint',
-  'travel-coat',
-  'travel-coat',
-  'pocket-knife',
-  'pocket-knife',
-  'silver-blade',
-  'silver-blade',
-  'steel-guard',
-  'rune-spear',
-  'firebomb',
-  'chainmail',
-  'hawk-eye',
-  'blessed-cup',
+  ...Array<string>(9).fill('neutral'),
+  ...Array<string>(8).fill('reward'),
 ];
 
 export function cardById(id: string): CardDef {

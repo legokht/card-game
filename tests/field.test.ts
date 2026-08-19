@@ -43,11 +43,11 @@ function curse(type: CurseType): CardInstance {
   };
 }
 
-function plain(name = '은빛 검'): CardInstance {
+function plain(name = '보상'): CardInstance {
   uid += 1;
   return {
     uid: `p${uid}`,
-    defId: 'silver-blade',
+    defId: 'reward',
     name,
     kind: 'reward',
     value: 4,

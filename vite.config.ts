@@ -4,11 +4,8 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   build: {
     rollupOptions: {
-      input: {
-        // 전투 프로토타입과 선택 프로토타입은 서로 독립적인 페이지다.
-        combat: resolve(__dirname, 'index.html'),
-        choice: resolve(__dirname, 'choice.html'),
-      },
+      // 전투 프로토타입을 걷어내면서 페이지가 하나만 남았다.
+      input: { choice: resolve(__dirname, 'choice.html') },
     },
   },
   test: {

@@ -261,14 +261,16 @@ describe('효과 적용', () => {
     expect(countKind(state.deck, 'reward')).toBeGreaterThanOrEqual(2);
   });
 
-  it('제거는 값싼 것부터 집는다', () => {
+  it('종류를 지정한 제거는 그 종류만 정확히 걷어낸다', () => {
+    // 카드가 종류로만 구분되므로 같은 종류 안에서는 어느 장이 빠지든 같다.
     const state = createGame(new Rng('rm'));
-    // 시작 덱의 가장 싼 중립은 부싯돌(1)과 주머니칼(1)로 각 2장씩이다.
+    const before = countKind(state.deck, 'neutral');
+    const others = state.deck.filter((c) => c.kind !== 'neutral').length;
+
     apply(state, [{ type: 'removeKind', kind: 'neutral', count: 4 }]);
 
-    const names = state.deck.filter((c) => c.kind === 'neutral').map((c) => c.name);
-    expect(names).not.toContain('부싯돌');
-    expect(names).not.toContain('주머니칼');
+    expect(countKind(state.deck, 'neutral')).toBe(before - 4);
+    expect(state.deck.filter((c) => c.kind !== 'neutral').length).toBe(others);
   });
 
   it('가장 값나가는 카드를 지운다', () => {

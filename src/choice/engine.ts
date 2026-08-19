@@ -20,9 +20,9 @@ import type {
 } from './types';
 
 /**
- * 선택 루프. 전투도 승패도 없고, 버튼을 누르면 덱이 바뀌는 것만 있다.
+ * 선택 루프. 버튼을 누르면 덱과 필드가 바뀐다.
  *
- * 종료 조건은 탈출(파편 5개) 하나뿐이고, 그 전까지는 무한히 돈다.
+ * 끝나는 길은 둘, 탈출(파편을 목표만큼 모음)과 사망(체력 0)이다.
  */
 
 export interface DeckSummary {
@@ -37,11 +37,6 @@ export interface DeckSummary {
   taintTone: string;
 }
 
-/**
- * 전투 중에는 손패가 덱에서 빠져나와 있다. 안 낸 카드는 그대로 돌아오므로,
- * 덱 요약은 손패까지 합쳐서 센다 — 안 그러면 전투 중에 덱이 0장으로 보이고
- * 저주 비율도 사라진다.
- */
 /** 덱과 필드를 합친 전체 보유 카드. */
 export function ownedCards(state: GameState): CardInstance[] {
   return [...state.deck, ...state.field];

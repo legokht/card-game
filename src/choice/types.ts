@@ -72,8 +72,7 @@ export type Effect =
   | { type: 'shard'; count: number }
   | { type: 'damage'; amount: number }
   | { type: 'heal'; amount: number }
-  /** 전투를 시작한다. 이기면 onWin이 적용된다. */
-  /** 덱에서 필드로 가져온다. 저주가 겹치면 그 자리에서 발동한다. */
+  /** 덱에서 필드로 가져온다. 놓이는 순간 저주가 판정된다. */
   | { type: 'drawField'; count: number }
   /** 푸시 유어 럭. 플레이어가 멈출 때까지 한 장씩 뽑는다. */
   | { type: 'pushLuck' }
