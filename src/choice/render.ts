@@ -1,6 +1,6 @@
 import { CURSE_RULES, MAX_HP } from './balance';
-import { fieldCurseBreakdown, summarize } from './engine';
-import { countShards, curseCounts, onEdge } from './field';
+import { deckByKind, deckCurseBreakdown, fieldCurseBreakdown, summarize } from './engine';
+import { countShards, onEdge } from './field';
 import type {
   CardInstance,
   CardKind,
@@ -82,59 +82,51 @@ function lastingPanel(state: GameState): string {
 }
 
 /**
- * 종류별 집계 한 줄. **필드와 덱이 같은 형식을 쓴다.**
- *
- * 카드에 이름도 개별 효과도 없으므로 낱장으로 보여줄 이유가 없다. 30장이
- * 넘어가도 한눈에 읽히려면 "무엇이 몇 장인가"만 있으면 된다.
- *
- * 저주는 종류별로 나누고, 필드에서는 발동 문턱까지 함께 보여준다 —
- * `파멸 0/3`. 문턱은 필드 조건이므로 덱에서는 장수만 센다.
- */
-function kindTally(
-  cards: CardInstance[],
-  opts: { withThreshold: boolean; edged?: CurseType[] },
-): string {
-  const edged = opts.edged ?? [];
-  const curses = curseCounts(cards);
-
-  // 저주가 아닌 종류는 있을 때만 띄운다. 0장짜리 칩이 자리를 차지하면
-  // 정작 봐야 할 저주가 묻힌다.
-  const plain = (['reward', 'neutral', 'shard'] as CardKind[])
-    .map((kind) => {
-      const n = cards.filter((c) => c.kind === kind).length;
-      if (n === 0) return '';
-      return `<span class="kindchip kindchip--${kind}">${KIND_LABEL[kind]} <b>×${n}</b></span>`;
-    })
-    .join('');
-
-  // 저주는 0장이어도 항상 띄운다. "지금 몇 장이고 몇 장에서 터지는가"가
-  // 곧 다음 뽑기의 위험도라서, 비어 있다는 사실 자체가 정보다.
-  const cursed = (Object.keys(CURSE_RULES) as CurseType[])
-    .map((t) => {
-      const rule = CURSE_RULES[t];
-      const n = curses[t];
-      const near = edged.includes(t);
-      const meter =
-        opts.withThreshold && rule.threshold !== null ? `${n}/${rule.threshold}` : `${n}`;
-      return `<span class="kindchip kindchip--${t}${near ? ' is-near' : ''}${
-        n === 0 ? ' is-empty' : ''
-      }" title="${rule.name} — ${rule.target}을(를) 노린다. ${rule.description}"
-        >${rule.name} <b>${meter}</b></span>`;
-    })
-    .join('');
-
-  return `<div class="kindtally">${plain}${cursed}</div>`;
-}
-
-/**
  * 필드.
  *
- * 낱장 타일 대신 종류별 집계만 보여준다 — 필드는 30장을 넘어가고, 카드에는
- * 이름도 개별 효과도 없다. 봐야 하는 것은 "무엇이 몇 장 있는가"다.
+ * 뽑은 카드가 계속 쌓이는 곳이라 장수가 많아져도 볼 수 있어야 한다.
+ * 저주는 종류별로 색이 다르고, **같은 종류가 정확히 1장 있는 카드는 테두리가
+ * 살아난다** — 한 장 더 뽑으면 겹친다는 뜻이다. 계산 없이 그 상태가 보이는 것이
+ * 이 화면에서 가장 중요한 일이다.
  */
 function fieldPanel(state: GameState): string {
   const edged = onEdge(state.field);
   const onField = fieldCurseBreakdown(state);
+
+  const cards = state.field
+    .map((card: CardInstance) => {
+      const onTheEdge = card.curseType !== undefined && edged.includes(card.curseType);
+      const cls = [
+        'fcard',
+        `fcard--${card.kind}`,
+        card.curseType ? `fcard--${card.curseType}` : '',
+        onTheEdge ? 'is-edge' : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
+      return `
+        <div class="${cls}">
+          <span class="fcard__name">${card.name}</span>
+          ${onTheEdge ? '<span class="fcard__note">한 장 더면 발동</span>' : ''}
+        </div>`;
+    })
+    .join('');
+
+  /**
+   * 종류별 현재 장수와 발동 문턱을 함께 보여준다 — "파멸 2/3".
+   * 문턱에 닿기 직전이면 강하게 경고한다. 침식은 문턱이 없어 장수만 센다.
+   */
+  const tally = (Object.keys(CURSE_RULES) as CurseType[])
+    .map((t) => {
+      const rule = CURSE_RULES[t];
+      const n = onField[t];
+      const near = edged.includes(t);
+      const meter = rule.threshold === null ? `${n}` : `${n}/${rule.threshold}`;
+      return `<span class="cursekind cursekind--${t}${near ? ' is-near' : ''}"
+        title="${rule.name} — ${rule.target}을(를) 노린다. ${rule.description}"
+        >${rule.name} <b>${meter}</b></span>`;
+    })
+    .join('');
 
   const warnings = edged
     .map((t) => {
@@ -149,17 +141,14 @@ function fieldPanel(state: GameState): string {
     <section class="field" aria-label="필드">
       <div class="field__head">
         <span class="field__label">필드 <b>${state.field.length}</b>장</span>
+        <span class="field__tally">${tally}</span>
       </div>
-      ${
-        state.field.length > 0
-          ? kindTally(state.field, { withThreshold: true, edged })
-          : '<p class="fcards__empty">아직 아무것도 펼치지 않았다</p>'
-      }
       ${warnings ? `<div class="edgewarns">${warnings}</div>` : ''}
+      <div class="fcards">${cards || '<p class="fcards__empty">아직 아무것도 펼치지 않았다</p>'}</div>
     </section>`;
 }
 
-
+/** 푸시 유어 럭 화면. 한 장씩 뽑으며 멈출지 정한다. */
 function pushView(state: GameState): string {
   const push = state.push!;
   const edged = onEdge(state.field);
@@ -230,6 +219,7 @@ function shardTrack(state: GameState): string {
 
 function deckPanel(state: GameState): string {
   const s = summarize(state);
+  const groups = deckByKind(state);
 
   const bars = (['reward', 'neutral', 'curse', 'shard'] as CardKind[])
     .map((kind) => {
@@ -240,26 +230,57 @@ function deckPanel(state: GameState): string {
     })
     .join('');
 
+  const counts = (['reward', 'neutral', 'curse', 'shard'] as CardKind[])
+    .map(
+      (kind) =>
+        `<span class="tally tally--${kind}"><b>${s[kind]}</b>${KIND_LABEL[kind]}</span>`,
+    )
+    .join('');
+
+  const lists = groups
+    .filter((g) => g.cards.length > 0)
+    .map(
+      (g) => `
+        <div class="pile">
+          <div class="pile__head pile__head--${g.kind}">${KIND_LABEL[g.kind]}</div>
+          <ul class="pile__list">
+            ${g.cards
+              .map(
+                (c) =>
+                  `<li><span class="pile__name">${c.name}</span>${
+                    c.count > 1 ? `<span class="pile__x">×${c.count}</span>` : ''
+                  }<span class="pile__val">${c.value}</span></li>`,
+              )
+              .join('')}
+          </ul>
+        </div>`,
+    )
+    .join('');
+
   return `
     <aside class="deck" aria-label="현재 덱">
       <div class="deck__top">
-        <span class="deck__size"><b>${state.deck.length}</b>장</span>
+        <span class="deck__size"><b>${s.total}</b>장</span>
         <span class="taint taint--${s.taintTone}">${s.taintLabel}</span>
       </div>
       <div class="curseratio">
         저주 <b>${s.curse}</b> / 전체 <b>${s.total}</b>
         <span class="curseratio__pct">${Math.round(s.taint * 100)}%</span>
       </div>
+      <p class="cursekinds__label">덱에 남아 아직 뽑힐 수 있는 저주</p>
+      <div class="cursekinds">${(Object.keys(CURSE_RULES) as CurseType[])
+        .map(
+          (t) =>
+            `<span class="cursekind cursekind--${t}">${CURSE_RULES[t].name} <b>${
+              deckCurseBreakdown(state)[t]
+            }</b></span>`,
+        )
+        .join('')}</div>
       <div class="bar">${bars || '<i class="seg seg--none"></i>'}</div>
-      <p class="cursekinds__label">덱에 남은 것 — 아직 뽑히지 않았다</p>
-      ${
-        state.deck.length > 0
-          ? kindTally(state.deck, { withThreshold: false })
-          : '<p class="pile__empty">덱이 비었다</p>'
-      }
+      <div class="tallies">${counts}</div>
+      <div class="piles">${lists || '<p class="pile__empty">덱이 비었다</p>'}</div>
     </aside>`;
 }
-
 
 function recentChanges(state: GameState): string {
   const last = state.records[state.records.length - 1];
