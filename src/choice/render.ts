@@ -351,11 +351,6 @@ export function render(root: HTMLElement, state: GameState, handlers: Handlers):
     ${fieldPanel(state)}
 
     ${deckPanel(state)}
-
-    <section class="history" aria-label="선택 기록">${state.log
-      .slice(-60)
-      .map((line) => `<p class="${line.startsWith('   ') ? 'history__sub' : ''}">${line.trim()}</p>`)
-      .join('')}</section>
   `;
 
   root.querySelectorAll<HTMLButtonElement>('.pick').forEach((el) => {
@@ -367,7 +362,4 @@ export function render(root: HTMLElement, state: GameState, handlers: Handlers):
 
   const blog = root.querySelector('.blog');
   if (blog) blog.scrollTop = blog.scrollHeight;
-
-  const history = root.querySelector('.history');
-  if (history) history.scrollTop = history.scrollHeight;
 }

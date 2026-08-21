@@ -53,8 +53,7 @@ body {
     'top top'
     'stage deck'
     'lasting deck'
-    'field deck'
-    'history deck';
+    'field deck';
   gap: 16px;
   max-width: 900px;
   margin: 0 auto;
@@ -1021,32 +1020,6 @@ b {
   color: var(--dim);
 }
 
-/* ---------- 기록 ---------- */
-
-.history {
-  grid-area: history;
-  max-height: 220px;
-  overflow-y: auto;
-  padding: 10px 14px;
-  background: var(--table);
-  border: 1px solid var(--edge-soft);
-  border-radius: 3px;
-  font-family: var(--mono);
-  font-size: 11.5px;
-  line-height: 1.75;
-  color: var(--dim);
-  font-variant-numeric: tabular-nums;
-}
-
-.history p {
-  margin: 0;
-}
-
-.history__sub {
-  padding-left: 14px;
-  color: var(--faint);
-}
-
 @media (max-width: 720px) {
   #app {
     grid-template-columns: minmax(0, 1fr);
@@ -1055,8 +1028,7 @@ b {
       'stage'
       'lasting'
       'field'
-      'deck'
-      'history';
+      'deck';
   }
 
   .deck {
