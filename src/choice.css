@@ -421,12 +421,6 @@ b {
   border-radius: 3px;
 }
 
-.field__tally {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-
 .field__head {
   display: flex;
   align-items: baseline;
@@ -444,40 +438,6 @@ b {
 }
 
 /* 문턱에 닿기 직전인 종류는 배지 자체가 경고가 된다. */
-.cursekind.is-near {
-  animation: pulse-near 1.6s ease-in-out infinite;
-  font-weight: 600;
-}
-
-.cursekind--doom.is-near {
-  color: #ffd0d0;
-  border-color: #d05a5a;
-  background: rgba(150, 30, 30, 0.45);
-}
-
-.cursekind--rot.is-near {
-  color: #f0cda0;
-  border-color: #c08c48;
-  background: rgba(150, 90, 30, 0.35);
-}
-
-.cursekind--erode.is-near {
-  color: #dcb0ea;
-  border-color: #a86ac0;
-  background: rgba(123, 74, 142, 0.45);
-}
-
-@keyframes pulse-near {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 currentColor;
-  }
-  50% {
-    box-shadow: 0 0 9px 0 currentColor;
-  }
-}
-
-/* 부패로 깎여 되돌릴 수 없는 최대 체력. 잃은 것이 보여야 한다. */
 .vitals__lost {
   padding: 2px 7px;
   font-family: var(--mono);
@@ -521,157 +481,6 @@ b {
   background: rgba(123, 74, 142, 0.22);
   border-color: #8e5aa4;
 }
-
-.fcards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
-  gap: 6px;
-  max-height: 260px;
-  overflow-y: auto;
-}
-
-.fcard {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  min-height: 56px;
-  padding: 6px 4px;
-  font-family: inherit;
-  color: var(--bone);
-  border: 1px solid;
-  border-radius: 3px;
-  cursor: default;
-  transition: box-shadow 0.15s ease;
-}
-
-.fcard--reward {
-  background: linear-gradient(170deg, #6b5a2c, #4a3d1d);
-  border-color: var(--reward);
-}
-
-.fcard--neutral {
-  background: linear-gradient(170deg, #464036, #332f28);
-  border-color: var(--neutral);
-}
-
-.fcard--shard {
-  background: linear-gradient(170deg, #2b4a44, #1e3833);
-  border-color: var(--shard);
-}
-
-/* 저주는 종류마다 색이 다르다. 무엇이 겹치려는지 알아야 하기 때문이다. */
-.fcard--curse {
-  border-style: dashed;
-  cursor: not-allowed;
-}
-
-.fcard--doom {
-  background: repeating-linear-gradient(135deg, #351317 0 7px, #2c1015 7px 14px);
-  border-color: #b34a4a;
-  color: #f0b0b0;
-}
-
-.fcard--rot {
-  background: repeating-linear-gradient(135deg, #33240f 0 7px, #2b1e0d 7px 14px);
-  border-color: #a8763c;
-  color: #dcb388;
-}
-
-.fcard--erode {
-  background: repeating-linear-gradient(135deg, #2a1b31 0 7px, #241729 7px 14px);
-  border-color: #8e5aa4;
-  color: #c9a8d8;
-}
-
-/*
- * 같은 종류가 필드에 딱 1장 있는 카드. 다음 한 장이 이걸 완성시킨다.
- * 이 상태가 눈에 띄는 것이 이 화면에서 가장 중요한 일이다.
- */
-.fcard.is-edge {
-  box-shadow:
-    0 0 0 2px currentColor,
-    0 0 16px rgba(0, 0, 0, 0.55);
-}
-
-.fcard__name {
-  font-family: var(--serif);
-  font-size: 11.5px;
-  text-align: center;
-}
-
-.fcard__note {
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  opacity: 0.85;
-}
-
-.fcard__stats {
-  display: flex;
-  gap: 6px;
-  font-family: var(--mono);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-}
-
-.fcard__stats .atk {
-  color: #e8b27a;
-}
-
-.fcard__stats .blk {
-  color: #9fc0d4;
-}
-
-.fcards__empty {
-  margin: 0;
-  grid-column: 1 / -1;
-  font-size: 12px;
-  color: var(--faint);
-}
-
-/* 덱에 남은 저주를 종류별로. 아래 목록은 필드까지 포함하므로 구분해서 적는다. */
-.cursekinds__label {
-  margin: -4px 0 -2px;
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  color: var(--faint);
-}
-
-.cursekinds {
-  display: flex;
-  gap: 5px;
-  flex-wrap: wrap;
-  font-size: 10.5px;
-}
-
-.cursekind {
-  padding: 2px 7px;
-  border-radius: 2px;
-  border: 1px solid;
-}
-
-.cursekind b {
-  font-family: var(--mono);
-  font-variant-numeric: tabular-nums;
-}
-
-.cursekind--doom {
-  color: #f0a0a0;
-  border-color: rgba(179, 74, 74, 0.6);
-}
-
-.cursekind--rot {
-  color: #d8a878;
-  border-color: rgba(168, 118, 60, 0.6);
-}
-
-.cursekind--erode {
-  color: #c58fd6;
-  border-color: rgba(142, 90, 164, 0.6);
-}
-
-/* ---------- 푸시 유어 럭 ---------- */
 
 .push {
   display: flex;
@@ -829,108 +638,6 @@ b {
   background: var(--edge-soft);
 }
 
-.tallies {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-  font-size: 11px;
-  color: var(--dim);
-}
-
-.tally b {
-  margin-right: 3px;
-  font-family: var(--mono);
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-}
-
-.tally--reward b {
-  color: var(--reward);
-}
-.tally--neutral b {
-  color: #a29684;
-}
-.tally--curse b {
-  color: #b184c2;
-}
-.tally--shard b {
-  color: var(--shard);
-}
-
-.piles {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  max-height: 340px;
-  overflow-y: auto;
-  padding-top: 4px;
-  border-top: 1px solid var(--edge-soft);
-}
-
-.pile__head {
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  margin-bottom: 3px;
-}
-
-.pile__head--reward {
-  color: var(--reward);
-}
-.pile__head--neutral {
-  color: #a29684;
-}
-.pile__head--curse {
-  color: #b184c2;
-}
-.pile__head--shard {
-  color: var(--shard);
-}
-
-.pile__list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-size: 12px;
-}
-
-.pile__list li {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  padding: 1px 0;
-  color: var(--bone);
-}
-
-.pile__name {
-  flex: 1;
-  min-width: 0;
-}
-
-.pile__x,
-.pile__val {
-  font-family: var(--mono);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-}
-
-.pile__x {
-  color: var(--dim);
-}
-
-.pile__val {
-  width: 14px;
-  text-align: right;
-  color: var(--faint);
-}
-
-.pile__empty {
-  margin: 0;
-  font-size: 12px;
-  color: var(--faint);
-}
-
-/* 저주 비율. 이유를 모른 채 죽지 않도록 숫자로 못박아 둔다. */
 .curseratio {
   display: flex;
   align-items: baseline;
@@ -1076,4 +783,116 @@ b {
   * {
     transition: none !important;
   }
+}
+
+
+/* 종류별 집계 칩. 필드와 덱이 같은 형식을 쓴다. */
+.kindtally {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.kindchip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 2px;
+  border: 1px solid var(--edge);
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+.kindchip b {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.kindchip--reward {
+  color: var(--reward);
+  border-color: rgba(201, 162, 74, 0.45);
+}
+
+.kindchip--neutral {
+  color: #a29684;
+  border-color: var(--edge);
+}
+
+.kindchip--shard {
+  color: var(--shard);
+  border-color: rgba(78, 154, 138, 0.5);
+}
+
+.kindchip--doom {
+  color: #f0a0a0;
+  border-color: rgba(179, 74, 74, 0.6);
+}
+
+.kindchip--rot {
+  color: #d8a878;
+  border-color: rgba(168, 118, 60, 0.6);
+}
+
+.kindchip--erode {
+  color: #c58fd6;
+  border-color: rgba(142, 90, 164, 0.6);
+}
+
+/* 0장인 저주는 있다는 것만 알리고 물러난다. */
+.kindchip.is-empty {
+  opacity: 0.45;
+}
+
+/* 문턱 직전이면 칩 자체가 경고가 된다. */
+.kindchip.is-near {
+  opacity: 1;
+  font-weight: 600;
+  animation: pulse-near 1.6s ease-in-out infinite;
+}
+
+.kindchip--doom.is-near {
+  color: #ffd0d0;
+  border-color: #d05a5a;
+  background: rgba(150, 30, 30, 0.45);
+}
+
+.kindchip--rot.is-near {
+  color: #f0cda0;
+  border-color: #c08c48;
+  background: rgba(150, 90, 30, 0.35);
+}
+
+.kindchip--erode.is-near {
+  color: #dcb0ea;
+  border-color: #a86ac0;
+  background: rgba(123, 74, 142, 0.45);
+}
+
+@keyframes pulse-near {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 currentColor;
+  }
+  50% {
+    box-shadow: 0 0 9px 0 currentColor;
+  }
+}
+
+/* 비어 있을 때의 한 줄. 집계 칩과 같은 자리에 들어간다. */
+.fcards__empty,
+.pile__empty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--faint);
+}
+
+/* 덱 집계 앞에 붙는 작은 설명. */
+.cursekinds__label {
+  margin: 2px 0 -2px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--faint);
 }
