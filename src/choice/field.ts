@@ -4,6 +4,8 @@ import {
   DOOM_THRESHOLD,
   ERODE_DAMAGE,
   MIN_MAX_HP,
+  REWARD_SPEND_COST,
+  REWARD_SPEND_HEAL,
   ROT_MAX_HP_LOSS,
   ROT_THRESHOLD,
   cardById,
@@ -238,6 +240,47 @@ export function drawToField(state: GameState, count: number, rng: Rng): string[]
   }
 
   return drawn.length ? [`뽑음: ${drawn.join(', ')}`, ...lines] : lines;
+}
+
+/** 필드에 쌓인 보상 장수. 소모 버튼이 이 값을 본다. */
+export function countRewards(field: CardInstance[]): number {
+  return field.filter((c) => c.kind === 'reward').length;
+}
+
+/** 지금 보상을 소모할 수 있는지. */
+export function canSpendRewards(field: CardInstance[]): boolean {
+  return countRewards(field) >= REWARD_SPEND_COST;
+}
+
+/**
+ * 필드의 보상을 소모해 체력을 회복한다.
+ *
+ * 자동으로 터지지 않는다 — 플레이어가 직접 누른다. 체력이 가득한 상태에서
+ * 쓰면 회복분이 그대로 버려지므로 "지금 쓸까 더 모을까"가 판단이 된다.
+ */
+export function spendRewards(state: GameState): string[] {
+  if (!canSpendRewards(state.field)) {
+    return [`보상이 ${REWARD_SPEND_COST}장 모여야 쓸 수 있다`];
+  }
+
+  let left = REWARD_SPEND_COST;
+  for (let i = state.field.length - 1; i >= 0 && left > 0; i--) {
+    if (state.field[i]!.kind === 'reward') {
+      state.field.splice(i, 1);
+      left -= 1;
+    }
+  }
+
+  const before = state.hp;
+  state.hp = Math.min(state.maxHp, state.hp + REWARD_SPEND_HEAL);
+  const gained = state.hp - before;
+
+  return [
+    `보상 ${REWARD_SPEND_COST}장을 태웠다`,
+    gained > 0
+      ? `체력 +${gained} (${state.hp}/${state.maxHp})`
+      : `체력이 이미 가득해 ${REWARD_SPEND_HEAL} 회복분을 버렸다`,
+  ];
 }
 
 /** 필드에서 저주를 없앤다. 종류를 지정하면 그 종류만. 덱으로 돌아가지 않는다. */

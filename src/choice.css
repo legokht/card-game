@@ -1049,3 +1049,78 @@ b {
     transition: none !important;
   }
 }
+
+/* 필드의 보상 저장고. 쌓인 보상의 유일한 출구다. */
+.bank {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 11px;
+  background: rgba(80, 64, 24, 0.28);
+  border: 1px solid var(--edge);
+  border-radius: 3px;
+}
+
+.bank__count {
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.bank__count b {
+  font-family: var(--mono);
+  font-size: 16px;
+  color: var(--reward);
+  font-variant-numeric: tabular-nums;
+}
+
+.bank__use {
+  padding: 5px 12px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--faint);
+  background: transparent;
+  border: 1px solid var(--edge);
+  border-radius: 2px;
+  cursor: not-allowed;
+}
+
+/* 10장에 닿으면 눈에 띄어야 한다 — 놓치면 그냥 쌓이기만 한다. */
+.bank.is-ready {
+  border-color: var(--reward);
+  background: rgba(201, 162, 74, 0.16);
+}
+
+.bank.is-ready .bank__use {
+  color: var(--ground);
+  background: var(--reward);
+  border-color: var(--reward);
+  font-weight: 600;
+  cursor: pointer;
+  animation: bank-ready 1.8s ease-in-out infinite;
+}
+
+.bank.is-ready .bank__use:hover {
+  filter: brightness(1.12);
+}
+
+.bank.is-ready .bank__use:focus-visible {
+  outline: 2px solid var(--bone);
+  outline-offset: 2px;
+}
+
+/* 체력이 차 있으면 회복분이 버려진다. 누르기 전에 알려 준다. */
+.bank__waste {
+  font-size: 11px;
+  color: #d8a878;
+}
+
+@keyframes bank-ready {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(201, 162, 74, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 12px 0 rgba(201, 162, 74, 0.5);
+  }
+}
