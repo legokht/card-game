@@ -9,14 +9,7 @@ import {
   TAINT_LEVELS,
 } from './balance';
 import { applyEffects, buildDeck, countKind } from './effects';
-import {
-  countShards,
-  curseCounts,
-  drawOne,
-  onEdge,
-  onPlaced,
-  spendRewards as spendFieldRewards,
-} from './field';
+import { countShards, curseCounts, drawOne, onEdge, onPlaced } from './field';
 import { PAIR_TABLE } from './pairs';
 import type {
   CardInstance,
@@ -203,21 +196,6 @@ export function choose(state: GameState, side: 'red' | 'blue', rng: Rng): void {
   if (state.push) return;
 
   advance(state, rng);
-}
-
-/**
- * 필드의 보상을 태워 체력을 회복한다.
- *
- * 선택 한 번을 쓰지 않는다 — 짝을 고르는 것과 별개의 행동이라 다음 짝으로
- * 넘어가지 않는다. 대가는 "체력이 가득할 때 쓰면 회복분을 버린다"는 것뿐이고,
- * 그래서 언제 쓸지가 판단이 된다.
- */
-export function useRewards(state: GameState): void {
-  if (state.escaped || state.dead) return;
-
-  const lines = spendFieldRewards(state);
-  state.log.push(`${state.step}. [보상 사용]`);
-  for (const l of lines) state.log.push(`   ${l}`);
 }
 
 /**

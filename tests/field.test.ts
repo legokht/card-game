@@ -1,8 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { Rng } from '../src/engine/rng';
 import {
-  canSpendRewards,
-  countRewards,
   curseCounts,
   drawToField,
   makeCurse,
@@ -12,7 +10,6 @@ import {
   purgeAll,
   purgeCurse,
   purgeRandom,
-  spendRewards,
 } from '../src/choice/field';
 import { choose, createGame, pushDraw, pushStop } from '../src/choice/engine';
 import { applyEffects, resetUidCounter } from '../src/choice/effects';
@@ -20,8 +17,6 @@ import { PAIR_TABLE } from '../src/choice/pairs';
 import {
   CURSE_RULES,
   DOOM_THRESHOLD,
-  REWARD_SPEND_COST,
-  REWARD_SPEND_HEAL,
   ERODE_DAMAGE,
   FIELD_START,
   MAX_HP,
@@ -303,77 +298,6 @@ describe('저주는 서로 간섭하지 않는다', () => {
     place(state, curse('rot'));
 
     expect(state.peakField.rot).toBe(2);
-  });
-});
-
-describe('보상 소모', () => {
-  function withRewards(n: number, seed = 'bank'): GameState {
-    const state = createGame(new Rng(seed));
-    state.field = Array.from({ length: n }, () => plain());
-    return state;
-  }
-
-  it(`${REWARD_SPEND_COST}장 미만이면 쓸 수 없다`, () => {
-    const state = withRewards(REWARD_SPEND_COST - 1);
-    expect(canSpendRewards(state.field)).toBe(false);
-
-    const hp = state.hp;
-    const lines = spendRewards(state);
-    expect(lines.join()).toContain('모여야');
-    expect(state.hp).toBe(hp);
-    expect(countRewards(state.field)).toBe(REWARD_SPEND_COST - 1);
-  });
-
-  it(`${REWARD_SPEND_COST}장이 모이면 태워서 체력을 회복한다`, () => {
-    const state = withRewards(REWARD_SPEND_COST);
-    state.hp = 1;
-    expect(canSpendRewards(state.field)).toBe(true);
-
-    spendRewards(state);
-
-    expect(state.hp).toBe(1 + REWARD_SPEND_HEAL);
-    expect(countRewards(state.field)).toBe(0);
-  });
-
-  it('넘치는 보상은 그대로 남는다', () => {
-    const state = withRewards(REWARD_SPEND_COST + 3);
-    state.hp = 1;
-
-    spendRewards(state);
-
-    expect(countRewards(state.field)).toBe(3);
-  });
-
-  it('보상만 태운다 — 다른 종류는 건드리지 않는다', () => {
-    const state = withRewards(REWARD_SPEND_COST);
-    state.field.push(curse('rot'), curse('erode'));
-    state.hp = 1;
-
-    spendRewards(state);
-
-    expect(countRewards(state.field)).toBe(0);
-    expect(curseCounts(state.field).rot).toBe(1);
-    expect(curseCounts(state.field).erode).toBe(1);
-  });
-
-  it('체력이 가득하면 회복분이 버려진다', () => {
-    const state = withRewards(REWARD_SPEND_COST);
-    state.hp = state.maxHp;
-
-    const lines = spendRewards(state);
-
-    expect(state.hp).toBe(state.maxHp);
-    expect(countRewards(state.field)).toBe(0);
-    expect(lines.join()).toContain('버렸다');
-  });
-
-  it('최대 체력을 넘겨 회복하지 않는다', () => {
-    const state = withRewards(REWARD_SPEND_COST);
-    state.hp = state.maxHp - 2;
-
-    spendRewards(state);
-
-    expect(state.hp).toBe(state.maxHp);
   });
 });
 

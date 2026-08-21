@@ -1,6 +1,6 @@
-import { CURSE_RULES, MAX_HP, REWARD_SPEND_COST, REWARD_SPEND_HEAL } from './balance';
+import { CURSE_RULES, MAX_HP } from './balance';
 import { deckByKind, deckCurseBreakdown, fieldCurseBreakdown, summarize } from './engine';
-import { canSpendRewards, countRewards, countShards, onEdge } from './field';
+import { countShards, onEdge } from './field';
 import type {
   CardInstance,
   CardKind,
@@ -19,7 +19,6 @@ import type {
 
 export interface Handlers {
   onChoose: (side: 'red' | 'blue') => void;
-  onUseRewards: () => void;
   onPushDraw: () => void;
   onPushStop: () => void;
   onRestart: () => void;
@@ -138,40 +137,12 @@ function fieldPanel(state: GameState): string {
     })
     .join('');
 
-  /**
-   * 필드에 쌓인 보상의 유일한 출구.
-   *
-   * 자동으로 터지지 않고 플레이어가 누른다 — 체력이 가득할 때 쓰면 회복분을
-   * 버리는 것이라 "지금 쓸까 더 모을까"가 판단이 된다. 그래서 몇 장 모였는지와
-   * 지금 얼마나 회복되는지를 버튼에 같이 띄운다.
-   */
-  const rewards = countRewards(state.field);
-  const canSpend = canSpendRewards(state.field);
-  const wouldHeal = Math.min(REWARD_SPEND_HEAL, state.maxHp - state.hp);
-  const rewardBank = `
-    <div class="bank${canSpend ? ' is-ready' : ''}">
-      <span class="bank__count">보상 <b>${rewards}</b>/${REWARD_SPEND_COST}</span>
-      <button id="use-rewards" class="bank__use" ${canSpend ? '' : 'disabled'}>
-        ${
-          canSpend
-            ? `${REWARD_SPEND_COST}장 태워 체력 +${wouldHeal}`
-            : `${REWARD_SPEND_COST - rewards}장 더 모아야 쓴다`
-        }
-      </button>
-      ${
-        canSpend && wouldHeal < REWARD_SPEND_HEAL
-          ? `<span class="bank__waste">체력이 차 있어 ${REWARD_SPEND_HEAL - wouldHeal}만큼 버려진다</span>`
-          : ''
-      }
-    </div>`;
-
   return `
     <section class="field" aria-label="필드">
       <div class="field__head">
         <span class="field__label">필드 <b>${state.field.length}</b>장</span>
         <span class="field__tally">${tally}</span>
       </div>
-      ${rewardBank}
       ${warnings ? `<div class="edgewarns">${warnings}</div>` : ''}
       <div class="fcards">${cards || '<p class="fcards__empty">아직 아무것도 펼치지 않았다</p>'}</div>
     </section>`;
@@ -388,7 +359,6 @@ export function render(root: HTMLElement, state: GameState, handlers: Handlers):
   root.querySelector('#push-draw')?.addEventListener('click', handlers.onPushDraw);
   root.querySelector('#push-stop')?.addEventListener('click', handlers.onPushStop);
   root.querySelector('#restart')?.addEventListener('click', handlers.onRestart);
-  root.querySelector('#use-rewards')?.addEventListener('click', handlers.onUseRewards);
 
   const blog = root.querySelector('.blog');
   if (blog) blog.scrollTop = blog.scrollHeight;
