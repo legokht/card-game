@@ -4,7 +4,9 @@ import {
   ELEMENT_ORDER,
   ELEMENT_RULES,
   ELEMENT_SYNERGY_COUNT,
+  DARK_HP_COST,
   MAX_HP,
+  WATER_MAX_HP_GAIN,
 } from './balance';
 import {
   deckByKind,
@@ -14,7 +16,7 @@ import {
   fieldElementBreakdown,
   summarize,
 } from './engine';
-import { comboReady, countShards, elementsOnEdge, onEdge } from './field';
+import { canFireSingle, comboReady, countShards, elementsOnEdge, onEdge } from './field';
 import type {
   CardInstance,
   CardKind,
@@ -37,6 +39,7 @@ export interface Handlers {
   onPushDraw: () => void;
   onPushStop: () => void;
   onPickElement: (element: ElementType) => void;
+  onUseSynergy: (target: ElementType | 'combo') => void;
   onRestart: () => void;
 }
 
@@ -49,6 +52,20 @@ const RARITY_LABEL: Record<Rarity, string> = {
   uncommon: '보통',
   rare: '희귀',
   ultra: '매우 희귀',
+};
+
+/**
+ * 시너지를 쓰면 무슨 일이 일어나는지 한 줄로.
+ *
+ * 규칙 설명(ELEMENT_RULES.description)은 "5장 모이면 ~"이라 조건을 말한다.
+ * 버튼 위에는 조건이 아니라 **결과**가 떠야 한다 — 이미 조건은 찼으니까.
+ *
+ * 빛은 여기 없다. 단독 효과가 없어 누를 수 없다.
+ */
+const SYNERGY_EFFECT: Partial<Record<ElementType, string>> = {
+  fire: '덱의 저주 1장 소각',
+  water: `최대 체력 +${WATER_MAX_HP_GAIN}`,
+  dark: `체력 -${DARK_HP_COST}, 필드의 저주 1장 소각`,
 };
 
 const KIND_LABEL: Record<CardKind, string> = {
@@ -125,7 +142,12 @@ interface FieldStack {
   slug: string;
   name: string;
   threshold: number | null;
+  /** 한 장만 더 모으면 쓸 수 있게 되는 상태. */
   near: boolean;
+  /** 지금 눌러서 쓸 수 있는 상태. 속성에만 있다 — 저주는 저절로 터진다. */
+  ready: boolean;
+  /** 눌렀을 때 무슨 일이 일어나는지. 준비된 스택에만 보인다. */
+  effect: string | null;
   title: string;
   cards: CardInstance[];
 }
@@ -137,11 +159,17 @@ function fieldStacks(state: GameState): FieldStack[] {
 
   const elementStacks: FieldStack[] = ELEMENT_ORDER.map((t) => {
     const rule = ELEMENT_RULES[t];
+    const ready = canFireSingle(state.field, t);
+    const usable = SYNERGY_EFFECT[t] !== undefined;
     return {
       slug: t,
       name: rule.name,
-      threshold: rule.threshold,
-      near: elemEdged.includes(t),
+      // 빛에는 단독 문턱이 없다. "빛 6/5"라고 적으면 쓸 수 있는데 안 쓰는
+      // 것처럼 읽힌다 — 장수만 세고, 복합 전용이라는 사실을 대신 붙인다.
+      threshold: usable ? rule.threshold : null,
+      near: usable && elemEdged.includes(t),
+      ready,
+      effect: ready ? SYNERGY_EFFECT[t] ?? null : usable ? null : '복합 전용',
       title: `${rule.name} — ${rule.target}에 작용한다. ${rule.description}`,
       cards: state.field.filter((c) => c.element === t),
     };
@@ -154,6 +182,9 @@ function fieldStacks(state: GameState): FieldStack[] {
       name: rule.name,
       threshold: rule.threshold,
       near: edged.includes(t),
+      // 저주는 손댈 수 없다. 조건이 차면 저절로 터진다.
+      ready: false,
+      effect: null,
       title: `${rule.name} — ${rule.target}을(를) 노린다. ${rule.description}`,
       cards: state.field.filter((c) => c.curseType === t),
     };
@@ -165,7 +196,9 @@ function fieldStacks(state: GameState): FieldStack[] {
     name: '파편',
     // 파편의 문턱은 곧 승리 조건이다. 다른 스택과 같은 형식으로 읽힌다.
     threshold: state.escapeTarget,
-    near: shards.length >= state.escapeTarget - 1,
+    near: shards.length === state.escapeTarget - 1,
+    ready: false,
+    effect: null,
     title: `탈출구 파편 — 필드에 ${state.escapeTarget}장 모이면 탈출한다`,
     cards: shards,
   };
@@ -206,18 +239,25 @@ function fieldPanel(state: GameState): string {
         })
         .join('');
 
-      return `
-        <div class="stack stack--${stack.slug}${stack.near ? ' is-near' : ''}">
-          ${kindTag(
-            stack.slug,
-            stack.name,
-            stack.cards.length,
-            stack.threshold,
-            stack.near,
-            stack.title,
-          )}
-          <div class="stack__cards">${pile || '<span class="stack__empty">·</span>'}</div>
-        </div>`;
+      const badge = kindTag(
+        stack.slug,
+        stack.name,
+        stack.cards.length,
+        stack.threshold,
+        stack.near || stack.ready,
+        stack.title,
+      );
+      const body = `
+        ${badge}
+        <div class="stack__cards">${pile || '<span class="stack__empty">·</span>'}</div>
+        ${stack.effect ? `<span class="stack__use">${stack.effect}</span>` : ''}`;
+
+      // 쓸 수 있을 때만 버튼이 된다. 그 외에는 눌러도 아무 일이 없어야 하므로
+      // 아예 누를 수 없는 것으로 둔다 — 눌리는데 안 되는 것이 제일 나쁘다.
+      return stack.ready
+        ? `<button class="stack stack--${stack.slug} is-ready" data-synergy="${stack.slug}"
+             title="${stack.title}\n누르면 ${ELEMENT_SYNERGY_COUNT}장을 써서 발동한다">${body}</button>`
+        : `<div class="stack stack--${stack.slug}${stack.near ? ' is-near' : ''}">${body}</div>`;
     })
     .join('');
 
@@ -233,22 +273,29 @@ function fieldPanel(state: GameState): string {
       >${ELEMENT_RULES[t].name}<b>${n}</b></span>`;
   }).join('');
 
-  const combo = `
-    <div class="combo${ready ? ' is-ready' : ''}"
-      title="네 속성이 각각 ${COMBO_SYNERGY_COUNT}장 이상이면 발동한다. 덱의 파편 1장을 필드로 꺼내고, 각 속성 ${COMBO_SYNERGY_COUNT}장씩 총 ${
-        COMBO_SYNERGY_COUNT * ELEMENT_ORDER.length
-      }장이 소멸한다. 단독 시너지보다 먼저 터진다.">
-      <span class="combo__label">복합 <i>각 ${COMBO_SYNERGY_COUNT}</i></span>
-      ${comboParts}
-    </div>`;
+  const comboTitle = `네 속성이 각각 ${COMBO_SYNERGY_COUNT}장 이상이면 쓸 수 있다. 덱의 파편 1장을 필드로 꺼내고, 각 속성 ${COMBO_SYNERGY_COUNT}장씩 총 ${
+    COMBO_SYNERGY_COUNT * ELEMENT_ORDER.length
+  }장이 소멸한다.`;
+  const comboBody = `
+    <span class="combo__label">복합 <i>각 ${COMBO_SYNERGY_COUNT}</i></span>
+    ${comboParts}
+    ${ready ? '<span class="stack__use">덱의 파편 1장을 필드로</span>' : ''}`;
+
+  const combo = ready
+    ? `<button class="combo is-ready" data-synergy="combo" title="${comboTitle}">${comboBody}</button>`
+    : `<div class="combo" title="${comboTitle}">${comboBody}</div>`;
 
   const warnings = [
-    ...elemEdged.map((t) => {
-      const rule = ELEMENT_RULES[t];
-      const left = ELEMENT_SYNERGY_COUNT - elems[t];
-      const head = left <= 1 ? `${rule.name} 한 장만 더면` : `${rule.name} ${left}장 더면`;
-      return `<span class="edgewarn edgewarn--${t}">${head} — ${rule.description}</span>`;
-    }),
+    // 속성은 닥치는 것이 아니라 쓰는 것이라 경고가 아니라 예고다.
+    // 쓸 수 있게 된 뒤에는 스택 자체가 버튼이 되므로 여기서는 빠진다.
+    ...elemEdged
+      .filter((t) => SYNERGY_EFFECT[t] !== undefined)
+      .map(
+        (t) =>
+          `<span class="edgewarn edgewarn--${t}">${ELEMENT_RULES[t].name} 한 장만 더면 쓸 수 있다 — ${
+            SYNERGY_EFFECT[t]
+          }</span>`,
+      ),
     ...edged.map((t) => {
       const rule = CURSE_RULES[t];
       const left = (rule.threshold ?? 0) - onField[t];
@@ -516,6 +563,11 @@ export function render(root: HTMLElement, state: GameState, handlers: Handlers):
 
   root.querySelectorAll<HTMLButtonElement>('.pick').forEach((el) => {
     el.addEventListener('click', () => handlers.onChoose(el.dataset.side as 'red' | 'blue'));
+  });
+  root.querySelectorAll<HTMLButtonElement>('[data-synergy]').forEach((el) => {
+    el.addEventListener('click', () =>
+      handlers.onUseSynergy(el.dataset.synergy as ElementType | 'combo'),
+    );
   });
   root.querySelectorAll<HTMLButtonElement>('.ebtn').forEach((el) => {
     el.addEventListener('click', () =>

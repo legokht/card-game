@@ -590,10 +590,14 @@ b {
   align-items: center;
   gap: 6px;
   padding: 4px 9px;
+  font-family: inherit;
   border: 1px solid var(--edge-soft);
   border-radius: 3px;
   font-size: 11px;
+  text-align: inherit;
+  background: none;
   color: var(--faint);
+  cursor: default;
 }
 
 .combo__label i {
@@ -638,8 +642,16 @@ b {
 
 .combo.is-ready {
   color: var(--bone);
-  border-color: var(--shard);
+  border: 2px solid var(--shard);
   background: rgba(78, 154, 138, 0.16);
+  cursor: pointer;
+  animation: pulse-ready 1.8s ease-in-out infinite;
+}
+
+.combo.is-ready .stack__use {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--shard);
 }
 
 /* ---------- 속성 지정 ---------- */
@@ -742,7 +754,13 @@ b {
   align-items: stretch;
   gap: 4px;
   min-width: 72px;
+  padding: 0;
+  font-family: inherit;
   font-size: 10.5px;
+  text-align: inherit;
+  background: none;
+  border: none;
+  cursor: default;
 }
 
 /*
@@ -801,6 +819,46 @@ b {
 .stack.is-near .stack__cards {
   border-style: solid;
   border-color: currentColor;
+}
+
+/*
+ * 지금 쓸 수 있는 시너지. 조건이 차도 저절로 터지지 않으므로, **누를 수 있다는
+ * 사실 자체가 정보다.** 근접 상태보다 확실히 세게 표시한다.
+ */
+.stack.is-ready {
+  cursor: pointer;
+}
+
+.stack.is-ready .stack__cards {
+  border-style: solid;
+  border-width: 2px;
+  border-color: currentColor;
+  box-shadow: 0 0 10px -2px currentColor;
+  animation: pulse-ready 1.8s ease-in-out infinite;
+}
+
+.stack.is-ready:hover .stack__cards,
+.combo.is-ready:hover {
+  filter: brightness(1.2);
+}
+
+/* 눌렀을 때 무슨 일이 일어나는지. 조건이 아니라 결과를 적는다. */
+.stack__use {
+  padding: 2px 4px;
+  font-size: 9.5px;
+  line-height: 1.3;
+  text-align: center;
+  color: currentColor;
+}
+
+@keyframes pulse-ready {
+  0%,
+  100% {
+    box-shadow: 0 0 8px -3px currentColor;
+  }
+  50% {
+    box-shadow: 0 0 14px 0 currentColor;
+  }
 }
 
 .fcard {

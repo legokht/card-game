@@ -105,30 +105,32 @@ export function onEdge(field: CardInstance[]): CurseType[] {
   });
 }
 
-/**
- * 한 장만 더 놓이면 시너지가 터지는 속성. 저주의 `onEdge`와 같은 규칙이다 —
- * 좋은 것도 나쁜 것도 같은 방식으로 예고된다.
- */
+/** 한 장만 더 모으면 쓸 수 있게 되는 속성. 아직 발동은 아니다. */
 export function elementsOnEdge(field: CardInstance[]): ElementType[] {
   const counts = elementCounts(field);
-  return ELEMENT_ORDER.filter((t) => counts[t] >= ELEMENT_SYNERGY_COUNT - 1);
+  const n = ELEMENT_SYNERGY_COUNT;
+  return ELEMENT_ORDER.filter((t) => counts[t] === n - 1);
 }
 
-/** 복합 시너지가 지금 성립하는지. 네 속성이 각각 문턱만큼 있어야 한다. */
+/**
+ * 단독 시너지를 **지금 쓸 수 있는지.**
+ *
+ * 빛은 단독 효과가 없어 여기 들어오지 않는다 — 눌러도 5장이 사라질 뿐이라
+ * 버튼으로 두면 함정이 된다. 빛은 복합 전용이다.
+ */
+export function canFireSingle(field: CardInstance[], element: ElementType): boolean {
+  if (element === 'light') return false;
+  return elementCounts(field)[element] >= ELEMENT_SYNERGY_COUNT;
+}
+
+/** 복합 시너지를 지금 쓸 수 있는지. 네 속성이 각각 문턱만큼 있어야 한다. */
 export function comboReady(field: CardInstance[]): boolean {
   const counts = elementCounts(field);
   return ELEMENT_ORDER.every((t) => counts[t] >= COMBO_SYNERGY_COUNT);
 }
 
 export interface TriggerResult {
-  /**
-   * 저주가 터진 것인지 시너지가 터진 것인지.
-   *
-   * 뽑기를 강제로 끊는 것은 저주뿐이다 — 시너지는 이득이라 뽑던 흐름을
-   * 멈출 이유가 없다.
-   */
-  source: 'curse' | 'synergy';
-  type: CurseType | ElementType | 'combo';
+  type: CurseType;
   lines: string[];
   /** 즉사했는지. */
   fatal: boolean;
@@ -163,16 +165,16 @@ function burnCurse(pile: CardInstance[]): CardInstance | null {
 }
 
 /**
- * 복합 시너지. 네 속성이 각각 문턱만큼 모이면 덱의 파편 1장을 필드로 꺼낸다.
+ * 복합 시너지를 **플레이어가 쓴다.** 조건이 차도 저절로 터지지 않는다.
  *
- * **단독 시너지보다 우선한다.** 둘이 동시에 성립하면 복합이 먼저 터지고,
- * 그 결과 줄어든 필드로 단독 문턱이 무너질 수 있다 — 조합을 노린다면 단독이
- * 터지기 전에 넷을 맞춰야 한다는 뜻이다.
+ * 자동이던 시절에는 넷이 맞춰지는 순간 12장이 사라져서, 조합을 더 키우거나
+ * 다른 시너지를 먼저 쓰는 선택지가 아예 없었다. 언제 쓸지가 판단이 되려면
+ * 조건이 찬 채로 기다릴 수 있어야 한다.
  *
  * 파편은 새로 만들지 않는다. 덱에 있어야만 꺼낼 수 있어서, 파편을 덱에 넣는
  * 3번 짝과 조합이 이어져야 비로소 탈출 진척이 된다.
  */
-function resolveCombo(state: GameState): string[] | null {
+export function fireCombo(state: GameState): string[] | null {
   if (!comboReady(state.field)) return null;
 
   for (const t of ELEMENT_ORDER) removeElementFromField(state, t, COMBO_SYNERGY_COUNT);
@@ -193,14 +195,22 @@ function resolveCombo(state: GameState): string[] | null {
   return lines;
 }
 
-/** 단독 시너지. 같은 속성이 문턱만큼 모이면 터지고 그 장수만큼 소멸한다. */
-function resolveSingle(state: GameState, element: ElementType): string[] | null {
-  const counts = elementCounts(state.field);
-  if (counts[element] < ELEMENT_SYNERGY_COUNT) return null;
+/**
+ * 단독 시너지를 **플레이어가 쓴다.** 문턱을 넘겨 계속 쌓아 두는 것도 선택이다.
+ *
+ * 문턱을 넘겨도 **정확히 문턱만큼만** 소모한다. 7장을 들고 있다가 쓰면 5장이
+ * 나가고 2장이 남는다 — 그래서 "지금 쓸까, 한 번 더 쓸 만큼 모을까"가 선다.
+ * 나가는 것은 가장 나중에 놓인 쪽이다.
+ *
+ * 언제 쓰는지가 곧 판단이다. 물은 부패에 최대 체력을 깎인 뒤에 써야 이득이
+ * 크고, 어둠은 체력이 버틸 때만 쓸 수 있다.
+ */
+export function fireSingle(state: GameState, element: ElementType): string[] | null {
+  if (!canFireSingle(state.field, element)) return null;
 
   const rule = ELEMENT_RULES[element];
   removeElementFromField(state, element, ELEMENT_SYNERGY_COUNT);
-  const lines = [`${rule.name} ${ELEMENT_SYNERGY_COUNT}장이 모였다 — ${ELEMENT_SYNERGY_COUNT}장 소멸`];
+  const lines = [`${rule.name} 시너지 — ${ELEMENT_SYNERGY_COUNT}장을 썼다`];
 
   switch (element) {
     case 'fire': {
@@ -234,51 +244,16 @@ function resolveSingle(state: GameState, element: ElementType): string[] | null 
 }
 
 /**
- * 속성 카드 한 장이 필드에 놓인 직후의 시너지 판정.
+ * 저주 한 장이 필드에 놓인 직후의 발동 판정.
  *
- * **복합이 단독보다 먼저다.** 터진 뒤 필드가 줄어 또 성립하는 것이 있으면
- * 이어서 터진다 — 한 번의 발동이 다음 발동을 여는 것도 규칙의 일부다.
- */
-function onElementPlaced(state: GameState, element: ElementType): TriggerResult | null {
-  const lines: string[] = [];
-  let type: ElementType | 'combo' | null = null;
-
-  for (;;) {
-    const combo = resolveCombo(state);
-    if (combo) {
-      lines.push(...combo);
-      type ??= 'combo';
-      continue;
-    }
-
-    // 방금 놓인 속성만 보지 않는다 — 복합이 필드를 흔들면 다른 속성이
-    // 문턱을 넘고 있을 수 있다.
-    const ready = ELEMENT_ORDER.find((t) => elementCounts(state.field)[t] >= ELEMENT_SYNERGY_COUNT);
-    if (!ready) break;
-
-    const single = resolveSingle(state, ready);
-    if (!single) break;
-    lines.push(...single);
-    type ??= ready;
-  }
-
-  if (type === null) return null;
-  void element; // 어느 장이 방아쇠였는지는 결과에 영향을 주지 않는다.
-  return { source: 'synergy', type, lines, fatal: state.hp <= 0 };
-}
-
-/**
- * 카드 한 장이 필드에 놓인 직후의 발동 판정.
+ * **저주만 저절로 터진다.** 시너지는 조건이 차도 기다렸다가 플레이어가
+ * 쓴다 — 저주는 닥치는 것이고 시너지는 쓰는 것이라, 여기서 갈린다.
  *
- * 저주와 속성이 **같은 문법**을 쓴다 — 필드에 같은 것이 모이면 터진다.
- * 세 저주는 공격 대상이 다르다(파멸은 목숨, 부패는 최대 체력, 침식은 체력)
- * 고, 네 속성은 모이면 이득이 된다.
+ * 세 저주는 공격 대상이 다르다 — 파멸은 목숨, 부패는 최대 체력, 침식은 체력.
  */
 export function onPlaced(state: GameState, card: CardInstance, rng: Rng): TriggerResult | null {
   void rng; // 지금 세 저주 중 무작위를 쓰는 것은 없다. 시그니처는 유지한다.
   notePeak(state);
-
-  if (card.element) return onElementPlaced(state, card.element);
 
   const type = card.curseType;
   if (!type) return null;
@@ -336,7 +311,7 @@ export function onPlaced(state: GameState, card: CardInstance, rng: Rng): Trigge
     state.log.push(`   첫 저주 발동 — ${state.step}수째 (${rule.name})`);
   }
 
-  return { source: 'curse', type, lines, fatal };
+  return { type, lines, fatal };
 }
 
 /** 필드에서 해당 종류의 저주를 뒤에서부터 count장 걷어낸다. */

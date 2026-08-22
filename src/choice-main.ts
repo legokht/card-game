@@ -1,6 +1,6 @@
 import './choice.css';
 import { Rng } from './engine/rng';
-import { choose, createGame, pickElement, pushDraw, pushStop } from './choice/engine';
+import { choose, createGame, pickElement, pushDraw, pushStop, useSynergy } from './choice/engine';
 import { render } from './choice/render';
 import type { GameState } from './choice/types';
 
@@ -31,6 +31,10 @@ function draw(): void {
     },
     onPickElement: (element) => {
       pickElement(state, element, rng);
+      draw();
+    },
+    onUseSynergy: (target) => {
+      useSynergy(state, target);
       draw();
     },
     onRestart: () => start(),

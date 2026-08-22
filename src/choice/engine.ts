@@ -15,6 +15,8 @@ import {
   curseCounts,
   drawOne,
   elementCounts,
+  fireCombo,
+  fireSingle,
   onEdge,
   onPlaced,
 } from './field';
@@ -310,21 +312,15 @@ export function pushDraw(state: GameState, rng: Rng): void {
   push.drawn += 1;
   push.log.push(`${push.drawn}장째 — ${card.name}`);
 
+  // 뽑기를 끊는 것은 저주뿐이다. 시너지는 조건이 차도 저절로 터지지 않으므로
+  // 뽑던 흐름을 건드리지 않는다 — 오히려 "한 장 더"가 시너지를 완성시킨다.
   const triggered = onPlaced(state, card, rng);
-  if (!triggered) return;
-
-  push.log.push(...triggered.lines);
-
-  // 뽑기를 끊는 것은 저주뿐이다. 시너지는 이득이라 흐름을 멈출 이유가 없고,
-  // 오히려 "한 장 더"가 시너지를 완성할 수도 있어 계속 갈 이유가 된다.
-  if (triggered.source !== 'curse') {
-    if (triggered.fatal) push.stopped = true;
-    return;
+  if (triggered) {
+    if (edged) state.riskyDraws.paired += 1;
+    push.log.push(...triggered.lines);
+    push.stopped = true;
+    push.log.push('저주가 발동했다 — 뽑기가 여기서 끝난다');
   }
-
-  if (edged) state.riskyDraws.paired += 1;
-  push.stopped = true;
-  push.log.push('저주가 발동했다 — 뽑기가 여기서 끝난다');
 }
 
 /** 푸시 유어 럭을 접고 선택 루프로 돌아간다. */
@@ -354,9 +350,23 @@ function noteDeckEmpty(state: GameState): void {
  * 죽음이 탈출보다 먼저다 — 마지막 파편을 쥐고 죽으면 죽은 것이다.
  */
 function advance(state: GameState, rng: Rng): void {
+  if (settle(state)) return;
+
+  state.step += 1;
+  state.current = drawPair(state, rng);
+  remember(state, state.current);
+}
+
+/**
+ * 판이 끝났는지만 본다. 다음 선택지는 세우지 않는다.
+ *
+ * 시너지 사용은 선택 한 번을 쓰지 않지만 판을 끝낼 수는 있다 — 어둠은 체력을
+ * 가져가고, 복합은 마지막 파편을 꺼낼 수 있다. 그래서 판정만 따로 떼어 둔다.
+ */
+function settle(state: GameState): boolean {
   if (state.hp <= 0) {
     die(state);
-    return;
+    return true;
   }
 
   // 탈출은 **필드에 나온** 파편으로만 센다. 덱에 아무리 많아도 뽑지 못하면
@@ -368,12 +378,42 @@ function advance(state: GameState, rng: Rng): void {
       `탈출 성공 — 필드 파편 ${countShards(state.field)}/${state.escapeTarget}. ` +
         `필드 ${state.field.length}장, 덱 ${state.deck.length}장 남음.`,
     );
-    return;
+    return true;
   }
 
-  state.step += 1;
-  state.current = drawPair(state, rng);
-  remember(state, state.current);
+  return false;
+}
+
+/**
+ * 시너지를 쓴다. **선택 한 번을 소모하지 않는다.**
+ *
+ * 조건이 찬 채로 기다렸다가 원할 때 쓰는 것이 이 시스템의 전부라, 쓰는 데
+ * 턴이 들면 "언제 쓸까"가 다시 "쓸 수 있을 때 쓴다"로 돌아간다.
+ */
+export function useSynergy(state: GameState, target: ElementType | 'combo'): void {
+  if (state.escaped || state.dead || state.push || state.pick) return;
+
+  const lines = target === 'combo' ? fireCombo(state) : fireSingle(state, target);
+  if (!lines) return;
+
+  state.log.push(`${state.step}. [시너지]`);
+  for (const l of lines) state.log.push(`   ${l}`);
+
+  // 기록에 남겨야 직전 결과 줄에 뜬다 — 무엇이 사라지고 무엇을 얻었는지가
+  // 화면에서 바로 읽혀야 한다.
+  state.records.push({
+    step: state.step,
+    pairId: `synergy:${target}`,
+    side: 'red',
+    text: '시너지 사용',
+    changes: lines,
+    deckSize: state.deck.length,
+    fieldSize: state.field.length,
+    curseCount: summarize(state).curse,
+    hp: Math.max(0, state.hp),
+  });
+
+  settle(state);
 }
 
 /** 종류별 장수를 세어 정렬된 목록으로. UI에서 덱 확인용. */
