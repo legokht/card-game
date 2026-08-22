@@ -43,14 +43,15 @@ function curse(type: CurseType): CardInstance {
   };
 }
 
-function plain(name = '보상'): CardInstance {
+function plain(name = '빛'): CardInstance {
   uid += 1;
   return {
     uid: `p${uid}`,
-    defId: 'reward',
+    defId: 'light',
     name,
-    kind: 'reward',
-    value: 4,
+    kind: 'element',
+    element: 'light',
+    value: 2,
   };
 }
 

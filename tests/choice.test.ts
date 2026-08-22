@@ -268,22 +268,22 @@ describe('효과 적용', () => {
   it('카드를 추가한다', () => {
     const state = createGame(new Rng('add'));
     const before = state.deck.length;
-    apply(state, [{ type: 'addRandom', kind: 'reward', count: 2 }]);
+    apply(state, [{ type: 'addRandom', kind: 'element', count: 2 }]);
 
     expect(state.deck).toHaveLength(before + 2);
-    expect(countKind(state.deck, 'reward')).toBeGreaterThanOrEqual(2);
+    expect(countKind(state.deck, 'element')).toBeGreaterThanOrEqual(2);
   });
 
   it('종류를 지정한 제거는 그 종류만 정확히 걷어낸다', () => {
     // 카드가 종류로만 구분되므로 같은 종류 안에서는 어느 장이 빠지든 같다.
     const state = createGame(new Rng('rm'));
-    const before = countKind(state.deck, 'neutral');
-    const others = state.deck.filter((c) => c.kind !== 'neutral').length;
+    const before = countKind(state.deck, 'element');
+    const others = state.deck.filter((c) => c.kind !== 'element').length;
 
-    apply(state, [{ type: 'removeKind', kind: 'neutral', count: 4 }]);
+    apply(state, [{ type: 'removeKind', kind: 'element', count: 4 }]);
 
-    expect(countKind(state.deck, 'neutral')).toBe(before - 4);
-    expect(state.deck.filter((c) => c.kind !== 'neutral').length).toBe(others);
+    expect(countKind(state.deck, 'element')).toBe(before - 4);
+    expect(state.deck.filter((c) => c.kind !== 'element').length).toBe(others);
   });
 
   it('가장 값나가는 카드를 지운다', () => {
@@ -312,7 +312,7 @@ describe('효과 적용', () => {
     // 종류 없는 저주는 필드에서 겹치지도, 갉지도, 죽이지도 않는 껍데기다.
     // transform이 그런 저주를 찍어내고 있었다.
     const state = createGame(new Rng('typed'));
-    apply(state, [{ type: 'transform', from: 'neutral', to: 'curse', count: 5 }]);
+    apply(state, [{ type: 'transform', from: 'element', to: 'curse', count: 5 }]);
 
     const curses = state.deck.filter((c) => c.kind === 'curse');
     expect(curses.length).toBeGreaterThan(0);
@@ -321,8 +321,8 @@ describe('효과 적용', () => {
 
   it('변환도 파멸 덱 상한을 넘기지 못한다', () => {
     const state = createGame(new Rng('cap'));
-    // 중립을 전부 저주로 — 상한이 없으면 파멸이 무더기로 쏟아진다.
-    apply(state, [{ type: 'transform', from: 'neutral', to: 'curse', count: 99 }]);
+    // 속성을 전부 저주로 — 상한이 없으면 파멸이 무더기로 쏟아진다.
+    apply(state, [{ type: 'transform', from: 'element', to: 'curse', count: 99 }]);
 
     const doom = state.deck.filter((c) => c.curseType === 'doom').length;
     expect(doom).toBeLessThanOrEqual(CURSE_RULES.doom.deckMax);
@@ -331,19 +331,19 @@ describe('효과 적용', () => {
   it('변환은 장수를 유지한 채 종류만 바꾼다', () => {
     const state = createGame(new Rng('tf'));
     const before = state.deck.length;
-    const neutralBefore = countKind(state.deck, 'neutral');
+    const curseBefore = countKind(state.deck, 'curse');
 
-    apply(state, [{ type: 'transform', from: 'neutral', to: 'reward', count: 2 }]);
+    apply(state, [{ type: 'transform', from: 'curse', to: 'element', count: 2 }]);
 
     expect(state.deck).toHaveLength(before);
-    expect(countKind(state.deck, 'neutral')).toBe(neutralBefore - 2);
+    expect(countKind(state.deck, 'curse')).toBe(curseBefore - 2);
   });
 
   it('조건이 참이면 then, 거짓이면 otherwise가 적용된다', () => {
     const effect: Effect = {
       type: 'ifThen',
       when: { type: 'countAtLeast', kind: 'curse', n: 3 },
-      then: [{ type: 'addRandom', kind: 'reward', count: 3 }],
+      then: [{ type: 'addRandom', kind: 'element', count: 3 }],
       otherwise: [{ type: 'addRandom', kind: 'curse', count: 1 }],
     };
 
@@ -356,9 +356,9 @@ describe('효과 적용', () => {
     resetUidCounter();
     const cursed = createGame(new Rng('cond-b'));
     apply(cursed, [{ type: 'addRandom', kind: 'curse', count: 3 }]);
-    const rewardBefore = countKind(cursed.deck, 'reward');
+    const elementBefore = countKind(cursed.deck, 'element');
     apply(cursed, [effect]);
-    expect(countKind(cursed.deck, 'reward')).toBe(rewardBefore + 3);
+    expect(countKind(cursed.deck, 'element')).toBe(elementBefore + 3);
   });
 
   it('회복은 최대 체력을 넘지 않는다', () => {
@@ -610,7 +610,7 @@ describe('덱 요약', () => {
 
     const s = summarize(state);
     expect(s.total).toBe(state.deck.length + state.field.length);
-    expect(s.reward + s.curse + s.neutral + s.shard).toBe(s.total);
+    expect(s.element + s.curse + s.shard).toBe(s.total);
     expect(s.curse).toBe(startCurses + 2);
     expect(s.taint).toBeCloseTo(s.curse / s.total);
     expect(s.taintLabel.length).toBeGreaterThan(0);

@@ -1,5 +1,24 @@
-/** 카드 종류. 파편은 탈출 카운트를 올리므로 따로 센다. */
-export type CardKind = 'reward' | 'curse' | 'neutral' | 'shard';
+/**
+ * 카드 종류. 파편은 탈출 카운트를 올리므로 따로 센다.
+ *
+ * 한때는 보상과 중립이 따로 있었지만 둘 다 폐기했다 — 좋은 카드와 아무것도
+ * 아닌 카드로 나뉘면 중립은 뽑을 이유가 없는 쓰레기가 된다. 지금은 모든
+ * 비저주 카드가 속성 카드이고, 전부 조합 재료라 쓸모없는 카드가 없다.
+ */
+export type CardKind = 'element' | 'curse' | 'shard';
+
+/**
+ * 속성 4종. **필드에 같은 속성이 모이면 발동한다 — 저주와 같은 문법이다.**
+ *
+ * 좋은 것도 나쁜 것도 "필드에 같은 것이 모이면 터진다"는 한 규칙으로 움직이므로
+ * 플레이어가 배울 것이 하나뿐이다.
+ *
+ * - `fire` 불 → 덱의 저주를 태운다
+ * - `water` 물 → 최대 체력을 늘린다
+ * - `dark` 어둠 → 체력을 대가로 필드의 저주를 태운다
+ * - `light` 빛 → 단독으로는 아무것도 하지 않는다. 복합 조합 전용이다
+ */
+export type ElementType = 'fire' | 'water' | 'dark' | 'light';
 
 /**
  * 저주 종류. 셋 다 **필드에 놓이는 순간** 판정하고, 공격 대상이 서로 다르다.
@@ -21,6 +40,8 @@ export interface CardDef {
   value: number;
   /** 저주일 때만 있다. 종류마다 발동 조건과 공격 대상이 다르다. */
   curseType?: CurseType;
+  /** 속성 카드일 때만 있다. 같은 속성이 필드에 모이면 시너지가 터진다. */
+  element?: ElementType;
 }
 
 /** 덱에 실제로 들어 있는 카드 한 장. */
@@ -31,6 +52,7 @@ export interface CardInstance {
   kind: CardKind;
   value: number;
   curseType?: CurseType;
+  element?: ElementType;
 }
 
 export type FieldCondition =
@@ -91,9 +113,19 @@ export type Effect =
   | { type: 'ifThen'; when: Condition; then: Effect[]; otherwise: Effect[] }
   /**
    * 종류를 가리지 않고 덱에 넣는다 (파편 제외).
-   * 보상일 수도, 중립일 수도, 저주일 수도 있다 — 그래서 "불린다"가 도박이 된다.
+   * 속성일 수도, 저주일 수도 있다 — 그래서 "불린다"가 도박이 된다.
    */
   | { type: 'addAny'; count: number }
+  /**
+   * 플레이어가 **원하는 속성을 지정해서** 덱에 넣는다.
+   *
+   * 무작위 속성과 달리 조합을 노리고 고를 수 있어 값이 훨씬 크다. 그래서
+   * 이 효과를 쓰는 짝은 희소도를 높게 잡는다.
+   *
+   * 즉시 끝나지 않고 선택 모드를 연다 — 푸시 유어 럭과 같은 방식으로 UI가
+   * 네 속성 버튼을 띄우고 플레이어가 고른다.
+   */
+  | { type: 'chooseElement'; count: number }
   /** 이후 N회의 선택에 걸쳐 유지되는 제약을 건다. */
   | {
       type: 'lasting';
@@ -185,6 +217,20 @@ export interface PairStat {
   blue: number;
 }
 
+/**
+ * 어느 속성을 넣을지 플레이어가 고르는 중인 상태.
+ *
+ * 푸시 유어 럭과 같은 방식이다 — 효과는 모드만 열고, 실제 진행은 UI가 한
+ * 장씩 몰고 간다. 다 고르면 모드가 닫히고 선택 루프가 이어진다.
+ */
+export interface ElementPick {
+  /** 아직 고를 장수. */
+  remaining: number;
+  /** 처음에 고를 수 있었던 장수. 화면에 "2장 중 1장째"로 뜬다. */
+  count: number;
+  log: string[];
+}
+
 /** 뽑기를 계속할지 멈출지 플레이어가 정하는 중인 상태. */
 export interface PushState {
   /** 지금까지 이 판에서 뽑은 장수. */
@@ -201,13 +247,15 @@ export interface GameState {
   /**
    * 필드. 뽑은 카드는 여기 펼쳐진 채로 계속 남는다.
    *
-   * 카드는 덱 → 필드 한 방향으로만 흐르고, 벗어나는 길은 선택지를 통한
-   * 제거뿐이다 — 발동한 저주도 필드에 남는다. 그래서 필드는 스스로 줄지
-   * 않고, 뽑을수록 위험이 올라간다.
+   * 카드는 덱 → 필드 한 방향으로만 흐른다. 벗어나는 길은 제거 선택지,
+   * 발동한 부패, 그리고 터진 시너지 셋이다 — 같은 것이 모이면 터지고
+   * 그만큼 소멸한다. 그래서 모으는 것 자체가 소모처가 된다.
    */
   field: CardInstance[];
   /** 푸시 유어 럭 진행 중이면 채워진다. */
   push: PushState | null;
+  /** 속성 지정 중이면 채워진다. 푸시와 마찬가지로 그 동안 선택 루프가 멈춘다. */
+  pick: ElementPick | null;
   /**
    * 탈출에 필요한 **필드** 파편 장수.
    *

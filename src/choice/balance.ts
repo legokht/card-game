@@ -1,4 +1,4 @@
-import type { CardDef, CurseType, Rarity } from './types';
+import type { CardDef, CurseType, ElementType, Rarity } from './types';
 
 /**
  * 선택 화면의 조정 가능한 수치를 전부 여기 모은다.
@@ -7,8 +7,10 @@ import type { CardDef, CurseType, Rarity } from './types';
 /**
  * 파편 몇 개를 모으면 탈출.
  *
- * 파편을 주는 것은 3번 짝(매우 희귀)의 빨강뿐이다. 그래서 이 값과
+ * 파편을 **덱에 넣는** 것은 3번 짝(매우 희귀)의 빨강뿐이다. 그래서 이 값과
  * PAIR_RARITY_WEIGHT.ultra가 함께 한 판의 길이를 정한다.
+ *
+ * 덱의 파편을 **필드로 꺼내는** 길은 뽑기와 복합 시너지 둘이다.
  */
 export const ESCAPE_TARGET = 3;
 
@@ -83,16 +85,23 @@ export const TAINT_LEVELS = [
 /**
  * 카드 풀. **카드는 종류로만 구분한다.**
  *
- * 한때는 은빛 검·낡은 단검처럼 이름과 값어치를 하나하나 갖고 있었지만,
- * 지금 규칙은 종류만 알면 된다 — 보상·중립·저주(파멸/부패/침식)·파편.
- * 옛 정의는 `retired/cards/`에 남겨 두었고, 이름과 효과는 새로 설계한다.
+ * 한때는 은빛 검·낡은 단검처럼 이름과 값어치를 하나하나 갖고 있었고, 그 뒤로는
+ * 보상과 중립으로 나뉘어 있었다. 둘 다 폐기했다 — 좋은 카드와 아무것도 아닌
+ * 카드로 나뉘면 중립은 뽑을 이유가 없는 쓰레기가 된다.
+ *
+ * 지금은 속성 4종·저주 3종·파편이 전부다. **모든 속성 카드가 조합 재료라
+ * 쓸모없는 카드가 없다.** 옛 정의는 `retired/cards/`에 남겨 두었다.
  *
  * `value`는 "가장 값나가는 것을 버린다" 같은 선택지가 무엇을 집을지 정한다.
- * 종류마다 카드가 하나뿐이므로 지금은 종류별 상수와 같다.
+ * 네 속성은 서로 우열이 없으므로 값어치가 같다 — 그래서 값어치로 고르는
+ * 선택지는 속성 사이에서 아무 편도 들지 않는다.
  */
 export const CARD_POOL: CardDef[] = [
-  { id: 'reward', name: '보상', kind: 'reward', value: 4 },
-  { id: 'neutral', name: '중립', kind: 'neutral', value: 2 },
+  // 속성 — 필드에 같은 것이 모이면 시너지가 터진다
+  { id: 'fire', name: '불', kind: 'element', element: 'fire', value: 2 },
+  { id: 'water', name: '물', kind: 'element', element: 'water', value: 2 },
+  { id: 'dark', name: '어둠', kind: 'element', element: 'dark', value: 2 },
+  { id: 'light', name: '빛', kind: 'element', element: 'light', value: 2 },
 
   // 저주만 하위 종류가 있다. 종류마다 발동 조건과 노리는 것이 다르다.
   { id: 'doom', name: '파멸', kind: 'curse', curseType: 'doom', value: 0 },
@@ -112,6 +121,91 @@ export const CARD_POOL: CardDef[] = [
  * 뽑기로 결정한 결과여야 한다.
  */
 export const FIELD_START = 0;
+
+/* ---------- 속성 시너지 ---------- */
+
+/**
+ * 단독 시너지가 터지는 필드 장수. 같은 속성이 이만큼 모이면 즉시 발동하고
+ * 그 장수만큼 필드에서 소멸한다.
+ *
+ * 필드가 스스로 줄지 않던 문제의 해답이 이것이다 — 시너지 발동이 곧 소모처다.
+ */
+export const ELEMENT_SYNERGY_COUNT = 5;
+
+/**
+ * 복합 시너지가 터지는 속성별 필드 장수. 네 속성이 **각각** 이만큼 있어야 한다.
+ *
+ * 발동하면 네 속성에서 이 수만큼씩, 총 `4 × 이 값`장이 소멸한다.
+ */
+export const COMBO_SYNERGY_COUNT = 3;
+
+/** 물 시너지가 올리는 최대 체력. 부패가 깎은 것을 되찾는 유일한 길이다. */
+export const WATER_MAX_HP_GAIN = 3;
+
+/** 어둠 시너지가 무는 체력. 필드의 저주를 태우는 값이다. */
+export const DARK_HP_COST = 3;
+
+export interface ElementRule {
+  type: ElementType;
+  name: string;
+  /** 단독 발동에 필요한 필드 장수. 네 속성 모두 같다. */
+  threshold: number;
+  /** 무엇에 작용하는지 한 단어로. */
+  target: string;
+  /** 발동하면 무슨 일이 일어나는지. */
+  description: string;
+}
+
+/**
+ * 네 속성. **저주와 정확히 같은 문법이다** — 필드에 같은 것이 모이면 터진다.
+ *
+ * 좋은 것과 나쁜 것이 같은 규칙으로 움직이므로 플레이어가 배울 것이 하나뿐이다.
+ *
+ * 빛만 단독 효과가 없다. 의도된 설계다 — 지금은 아무것도 하지 않지만 복합
+ * 조합에는 반드시 필요해서, "쓸모없어 보이지만 남겨둬야 하는 카드"라는 판단이
+ * 생긴다.
+ */
+export const ELEMENT_RULES: Record<ElementType, ElementRule> = {
+  fire: {
+    type: 'fire',
+    name: '불',
+    threshold: ELEMENT_SYNERGY_COUNT,
+    target: '덱의 저주',
+    description: `필드에 ${ELEMENT_SYNERGY_COUNT}장 모이면 덱의 저주 1장을 소각한다`,
+  },
+  water: {
+    type: 'water',
+    name: '물',
+    threshold: ELEMENT_SYNERGY_COUNT,
+    target: '최대 체력',
+    description: `필드에 ${ELEMENT_SYNERGY_COUNT}장 모이면 최대 체력 +${WATER_MAX_HP_GAIN}`,
+  },
+  dark: {
+    type: 'dark',
+    name: '어둠',
+    threshold: ELEMENT_SYNERGY_COUNT,
+    target: '필드의 저주',
+    description: `필드에 ${ELEMENT_SYNERGY_COUNT}장 모이면 체력 -${DARK_HP_COST}, 필드의 저주 1장을 소각한다`,
+  },
+  light: {
+    type: 'light',
+    name: '빛',
+    threshold: ELEMENT_SYNERGY_COUNT,
+    target: '복합 조합',
+    description: '단독 효과가 없다 — 복합 시너지에만 쓰인다',
+  },
+};
+
+/** 화면과 순회에서 쓰는 속성 순서. 불·물·어둠·빛으로 고정한다. */
+export const ELEMENT_ORDER: ElementType[] = ['fire', 'water', 'dark', 'light'];
+
+/**
+ * 저주를 태울 때 어느 종류부터 집는지.
+ *
+ * 위험한 순서다 — 파멸은 즉사, 부패는 되돌릴 수 없는 손실, 침식은 소액.
+ * 태우는 것은 순수한 이득이므로 플레이어가 원할 순서로 자동으로 집는다.
+ */
+export const CURSE_BURN_ORDER: CurseType[] = ['doom', 'rot', 'erode'];
 
 /* ---------- 저주 문턱과 피해 ---------- */
 
@@ -231,8 +325,13 @@ export const STARTING_DECK: string[] = [
   'doom',
   'rot',
   'erode',
-  ...Array<string>(9).fill('neutral'),
-  ...Array<string>(8).fill('reward'),
+  // 나머지 17장은 네 속성으로 고르게 나눈다 — 시작 덱이 어느 조합도
+  // 편들지 않아야 조합을 어느 쪽으로 끌고 갈지가 플레이어의 선택이 된다.
+  // 4로 나누어떨어지지 않는 한 장은 순서상 첫 속성이 갖는다.
+  ...Array<string>(5).fill('fire'),
+  ...Array<string>(4).fill('water'),
+  ...Array<string>(4).fill('dark'),
+  ...Array<string>(4).fill('light'),
 ];
 
 export function cardById(id: string): CardDef {
@@ -243,4 +342,11 @@ export function cardById(id: string): CardDef {
 
 export function poolOf(kind: CardDef['kind']): CardDef[] {
   return CARD_POOL.filter((c) => c.kind === kind && c.id !== 'shard');
+}
+
+/** 속성 하나의 카드 정의. "원하는 속성을 지정해서 넣는다"에서 쓴다. */
+export function elementDef(element: ElementType): CardDef {
+  const found = CARD_POOL.find((c) => c.element === element);
+  if (!found) throw new Error(`알 수 없는 속성: ${element}`);
+  return found;
 }

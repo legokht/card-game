@@ -1,16 +1,23 @@
 import type { Rng } from '../engine/rng';
 import {
+  COMBO_SYNERGY_COUNT,
+  CURSE_BURN_ORDER,
   CURSE_RULES,
+  DARK_HP_COST,
   DOOM_THRESHOLD,
+  ELEMENT_ORDER,
+  ELEMENT_RULES,
+  ELEMENT_SYNERGY_COUNT,
   ERODE_DAMAGE,
   MIN_MAX_HP,
   ROT_MAX_HP_LOSS,
   ROT_THRESHOLD,
+  WATER_MAX_HP_GAIN,
   cardById,
   curseWeights,
   poolOf,
 } from './balance';
-import type { CardInstance, CurseType, GameState } from './types';
+import type { CardInstance, CurseType, ElementType, GameState } from './types';
 
 /**
  * 필드.
@@ -18,15 +25,18 @@ import type { CardInstance, CurseType, GameState } from './types';
  * 뽑은 카드는 쓰는 것이 아니라 필드에 펼쳐진 채로 남는다 — 잉카의 황금에서
  * 뒤집힌 카드가 계속 앞에 쌓이는 것과 같다. 소모라는 개념이 없다.
  *
- * 카드는 **덱 → 필드 한 방향으로만** 흐른다. 되돌아가는 길은 없고, 필드에서
- * 벗어나는 길은 선택지를 통한 제거뿐이다 — 발동한 저주도 필드에 남는다.
+ * 카드는 **덱 → 필드 한 방향으로만** 흐른다. 되돌아가는 길은 없다.
  *
- * 그래서 필드는 스스로 줄지 않는다. 뽑을수록 위험이 올라가고, 유일한 출구는
- * 제거 선택지다 — 필드가 더러울수록 그 선택지가 생명줄이 된다.
+ * 필드에서 벗어나는 길은 셋이다 — 제거 선택지, 발동한 부패, 그리고 **터진
+ * 시너지**. 한때는 제거 선택지뿐이라 필드가 스스로 줄지 않고 무한정 쌓였다.
+ * 지금은 모으는 것 자체가 소모처다.
  *
- * **저주는 전부 "필드에 놓이는 순간" 판정한다.** 매 선택마다 훑는 지속 효과는
- * 없다. 그래서 같은 저주가 반복 발동하지 않고, 발동 시점이 항상 플레이어가
- * 뽑기를 누른 순간과 일치한다.
+ * **저주도 속성도 전부 "필드에 놓이는 순간" 판정한다.** 매 선택마다 훑는
+ * 지속 효과는 없다. 그래서 같은 것이 반복 발동하지 않고, 발동 시점이 항상
+ * 플레이어가 뽑기를 누른 순간과 일치한다.
+ *
+ * 좋은 것과 나쁜 것이 **같은 문법**을 쓴다 — 필드에 같은 것이 모이면 터진다.
+ * 그래서 플레이어가 배울 규칙이 하나뿐이다.
  */
 
 let fieldUid = 0;
@@ -45,6 +55,7 @@ function instantiate(defId: string): CardInstance {
     kind: def.kind,
     value: def.value,
     ...(def.curseType ? { curseType: def.curseType } : {}),
+    ...(def.element ? { element: def.element } : {}),
   };
 }
 
@@ -56,6 +67,13 @@ function instantiate(defId: string): CardInstance {
  */
 export function countShards(cards: CardInstance[]): number {
   return cards.filter((c) => c.kind === 'shard').length;
+}
+
+/** 속성별 장수. 필드에 쓰면 시너지 진행도가 된다. */
+export function elementCounts(cards: CardInstance[]): Record<ElementType, number> {
+  const counts: Record<ElementType, number> = { fire: 0, water: 0, dark: 0, light: 0 };
+  for (const c of cards) if (c.element) counts[c.element] += 1;
+  return counts;
 }
 
 /** 덱 안의 저주 종류별 장수. 파멸 상한을 지키는 데 쓴다. */
@@ -87,8 +105,30 @@ export function onEdge(field: CardInstance[]): CurseType[] {
   });
 }
 
+/**
+ * 한 장만 더 놓이면 시너지가 터지는 속성. 저주의 `onEdge`와 같은 규칙이다 —
+ * 좋은 것도 나쁜 것도 같은 방식으로 예고된다.
+ */
+export function elementsOnEdge(field: CardInstance[]): ElementType[] {
+  const counts = elementCounts(field);
+  return ELEMENT_ORDER.filter((t) => counts[t] >= ELEMENT_SYNERGY_COUNT - 1);
+}
+
+/** 복합 시너지가 지금 성립하는지. 네 속성이 각각 문턱만큼 있어야 한다. */
+export function comboReady(field: CardInstance[]): boolean {
+  const counts = elementCounts(field);
+  return ELEMENT_ORDER.every((t) => counts[t] >= COMBO_SYNERGY_COUNT);
+}
+
 export interface TriggerResult {
-  type: CurseType;
+  /**
+   * 저주가 터진 것인지 시너지가 터진 것인지.
+   *
+   * 뽑기를 강제로 끊는 것은 저주뿐이다 — 시너지는 이득이라 뽑던 흐름을
+   * 멈출 이유가 없다.
+   */
+  source: 'curse' | 'synergy';
+  type: CurseType | ElementType | 'combo';
   lines: string[];
   /** 즉사했는지. */
   fatal: boolean;
@@ -102,15 +142,143 @@ function notePeak(state: GameState): void {
   }
 }
 
+/** 필드에서 해당 속성을 뒤에서부터 count장 걷어낸다. */
+function removeElementFromField(state: GameState, element: ElementType, count: number): void {
+  let left = count;
+  for (let i = state.field.length - 1; i >= 0 && left > 0; i--) {
+    if (state.field[i]!.element === element) {
+      state.field.splice(i, 1);
+      left -= 1;
+    }
+  }
+}
+
+/** 덱이나 필드에서 저주 한 장을 태운다. 위험한 종류부터 집는다. */
+function burnCurse(pile: CardInstance[]): CardInstance | null {
+  for (const type of CURSE_BURN_ORDER) {
+    const i = pile.findIndex((c) => c.curseType === type);
+    if (i >= 0) return pile.splice(i, 1)[0]!;
+  }
+  return null;
+}
+
 /**
- * 저주 한 장이 필드에 놓인 직후의 발동 판정.
+ * 복합 시너지. 네 속성이 각각 문턱만큼 모이면 덱의 파편 1장을 필드로 꺼낸다.
  *
- * 세 저주는 공격 대상이 다르다 — 파멸은 목숨, 부패는 덱, 침식은 체력.
- * 어느 것도 발동 후 필드에서 사라지지 않는다.
+ * **단독 시너지보다 우선한다.** 둘이 동시에 성립하면 복합이 먼저 터지고,
+ * 그 결과 줄어든 필드로 단독 문턱이 무너질 수 있다 — 조합을 노린다면 단독이
+ * 터지기 전에 넷을 맞춰야 한다는 뜻이다.
+ *
+ * 파편은 새로 만들지 않는다. 덱에 있어야만 꺼낼 수 있어서, 파편을 덱에 넣는
+ * 3번 짝과 조합이 이어져야 비로소 탈출 진척이 된다.
+ */
+function resolveCombo(state: GameState): string[] | null {
+  if (!comboReady(state.field)) return null;
+
+  for (const t of ELEMENT_ORDER) removeElementFromField(state, t, COMBO_SYNERGY_COUNT);
+  const burned = COMBO_SYNERGY_COUNT * ELEMENT_ORDER.length;
+
+  const lines = [
+    `복합 시너지 — 네 속성이 각각 ${COMBO_SYNERGY_COUNT}장씩 모였다 (${burned}장 소멸)`,
+  ];
+
+  const i = state.deck.findIndex((c) => c.kind === 'shard');
+  if (i < 0) {
+    lines.push('덱에 파편이 없어 꺼낼 것이 없었다');
+    return lines;
+  }
+
+  state.field.push(...state.deck.splice(i, 1));
+  lines.push(`덱의 탈출구 파편 1장을 필드로 꺼냈다 — 필드 파편 ${countShards(state.field)}장`);
+  return lines;
+}
+
+/** 단독 시너지. 같은 속성이 문턱만큼 모이면 터지고 그 장수만큼 소멸한다. */
+function resolveSingle(state: GameState, element: ElementType): string[] | null {
+  const counts = elementCounts(state.field);
+  if (counts[element] < ELEMENT_SYNERGY_COUNT) return null;
+
+  const rule = ELEMENT_RULES[element];
+  removeElementFromField(state, element, ELEMENT_SYNERGY_COUNT);
+  const lines = [`${rule.name} ${ELEMENT_SYNERGY_COUNT}장이 모였다 — ${ELEMENT_SYNERGY_COUNT}장 소멸`];
+
+  switch (element) {
+    case 'fire': {
+      const burned = burnCurse(state.deck);
+      lines.push(burned ? `덱의 ${burned.name} 1장을 소각했다` : '덱에 태울 저주가 없었다');
+      break;
+    }
+
+    case 'water': {
+      state.maxHp += WATER_MAX_HP_GAIN;
+      lines.push(`최대 체력 +${WATER_MAX_HP_GAIN} (${state.hp}/${state.maxHp})`);
+      break;
+    }
+
+    case 'dark': {
+      state.hp -= DARK_HP_COST;
+      const burned = burnCurse(state.field);
+      lines.push(`체력 -${DARK_HP_COST} (${Math.max(0, state.hp)}/${state.maxHp})`);
+      lines.push(burned ? `필드의 ${burned.name} 1장을 소각했다` : '필드에 태울 저주가 없었다');
+      break;
+    }
+
+    case 'light':
+      // 의도된 설계다. 빛은 단독으로 아무것도 하지 않지만 복합에는 반드시
+      // 필요해서, "쓸모없어 보이지만 남겨둬야 하는 카드"라는 판단이 생긴다.
+      lines.push('빛은 단독으로는 아무것도 하지 않는다 — 복합 조합에만 쓰인다');
+      break;
+  }
+
+  return lines;
+}
+
+/**
+ * 속성 카드 한 장이 필드에 놓인 직후의 시너지 판정.
+ *
+ * **복합이 단독보다 먼저다.** 터진 뒤 필드가 줄어 또 성립하는 것이 있으면
+ * 이어서 터진다 — 한 번의 발동이 다음 발동을 여는 것도 규칙의 일부다.
+ */
+function onElementPlaced(state: GameState, element: ElementType): TriggerResult | null {
+  const lines: string[] = [];
+  let type: ElementType | 'combo' | null = null;
+
+  for (;;) {
+    const combo = resolveCombo(state);
+    if (combo) {
+      lines.push(...combo);
+      type ??= 'combo';
+      continue;
+    }
+
+    // 방금 놓인 속성만 보지 않는다 — 복합이 필드를 흔들면 다른 속성이
+    // 문턱을 넘고 있을 수 있다.
+    const ready = ELEMENT_ORDER.find((t) => elementCounts(state.field)[t] >= ELEMENT_SYNERGY_COUNT);
+    if (!ready) break;
+
+    const single = resolveSingle(state, ready);
+    if (!single) break;
+    lines.push(...single);
+    type ??= ready;
+  }
+
+  if (type === null) return null;
+  void element; // 어느 장이 방아쇠였는지는 결과에 영향을 주지 않는다.
+  return { source: 'synergy', type, lines, fatal: state.hp <= 0 };
+}
+
+/**
+ * 카드 한 장이 필드에 놓인 직후의 발동 판정.
+ *
+ * 저주와 속성이 **같은 문법**을 쓴다 — 필드에 같은 것이 모이면 터진다.
+ * 세 저주는 공격 대상이 다르다(파멸은 목숨, 부패는 최대 체력, 침식은 체력)
+ * 고, 네 속성은 모이면 이득이 된다.
  */
 export function onPlaced(state: GameState, card: CardInstance, rng: Rng): TriggerResult | null {
   void rng; // 지금 세 저주 중 무작위를 쓰는 것은 없다. 시그니처는 유지한다.
   notePeak(state);
+
+  if (card.element) return onElementPlaced(state, card.element);
 
   const type = card.curseType;
   if (!type) return null;
@@ -168,7 +336,7 @@ export function onPlaced(state: GameState, card: CardInstance, rng: Rng): Trigge
     state.log.push(`   첫 저주 발동 — ${state.step}수째 (${rule.name})`);
   }
 
-  return { type, lines, fatal };
+  return { source: 'curse', type, lines, fatal };
 }
 
 /** 필드에서 해당 종류의 저주를 뒤에서부터 count장 걷어낸다. */
@@ -302,10 +470,10 @@ export function peek(state: GameState, count: number, keep: number, rng: Rng): s
   return lines;
 }
 
-/** 보상 풀에서 필드로 바로 넣는다. 저주는 이 경로로 들어오지 않는다. */
+/** 속성 풀에서 필드로 바로 넣는다. 저주는 이 경로로 들어오지 않는다. */
 export function addToField(
   state: GameState,
-  kind: 'reward' | 'neutral',
+  kind: 'element',
   count: number,
   rng: Rng,
 ): string[] {

@@ -50,6 +50,7 @@ function instantiate(defId: string): CardInstance {
     kind: def.kind,
     value: def.value,
     ...(def.curseType ? { curseType: def.curseType } : {}),
+    ...(def.element ? { element: def.element } : {}),
   };
 }
 
@@ -111,9 +112,8 @@ function removeCards(state: GameState, targets: CardInstance[]): void {
 }
 
 const KIND_NAME: Record<CardKind, string> = {
-  reward: '보상',
+  element: '속성',
   curse: '저주',
-  neutral: '중립',
   shard: '파편',
 };
 
@@ -237,7 +237,9 @@ export function applyEffect(state: GameState, effect: Effect, rng: Rng): string[
 
     case 'addAny': {
       // 종류를 가리지 않는다 — 저주가 섞여 있어서 "불린다"가 도박이 된다.
-      const kinds: CardKind[] = ['reward', 'neutral', 'curse'];
+      // 보상·중립을 속성 하나로 합치면서도 저주가 걸릴 확률은 3분의 1로
+      // 그대로 둔다. 속성을 두 번 넣은 것은 그 비율을 지키기 위해서다.
+      const kinds: CardKind[] = ['element', 'element', 'curse'];
       const added: string[] = [];
       for (let i = 0; i < effect.count; i++) {
         const kind = rng.pick(kinds);
@@ -247,6 +249,13 @@ export function applyEffect(state: GameState, effect: Effect, rng: Rng): string[
         added.push(card.name);
       }
       return added.length ? [`+ ${added.join(', ')}`] : [];
+    }
+
+    case 'chooseElement': {
+      // 실제 진행은 UI가 한 장씩 몰고 간다. 여기서는 모드만 연다 —
+      // 푸시 유어 럭과 같은 방식이다.
+      state.pick = { remaining: effect.count, count: effect.count, log: [] };
+      return [`속성 ${effect.count}장을 직접 고른다`];
     }
 
     case 'lasting': {
@@ -273,14 +282,15 @@ export function applyEffects(state: GameState, effects: Effect[], rng: Rng): str
   return effects.flatMap((e) => applyEffect(state, e, rng));
 }
 
-/** 필드로 바로 놓는 보상. 선택지에서 쓴다. */
+/** 필드로 바로 놓는 속성 카드. 선택지에서 쓴다. */
 export function grantToField(
   state: GameState,
-  kind: 'reward' | 'neutral',
+  kind: 'element',
   count: number,
   rng: Rng,
 ): string[] {
-  // 보상·중립만 들어오므로 저주 발동은 없지만, 필드 최고치 기록은 갱신해야 한다.
+  // 저주는 이 경로로 들어오지 않지만, 속성은 놓이는 순간 시너지가 터질 수
+  // 있으므로 판정을 거쳐야 한다.
   const before = state.field.length;
   const lines = addToField(state, kind, count, rng);
   for (const t of resolvePlaced(state, state.field.slice(before), rng)) lines.push(...t.lines);

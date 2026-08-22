@@ -1,6 +1,6 @@
 import './choice.css';
 import { Rng } from './engine/rng';
-import { choose, createGame, pushDraw, pushStop } from './choice/engine';
+import { choose, createGame, pickElement, pushDraw, pushStop } from './choice/engine';
 import { render } from './choice/render';
 import type { GameState } from './choice/types';
 
@@ -27,6 +27,10 @@ function draw(): void {
     },
     onPushStop: () => {
       pushStop(state, rng);
+      draw();
+    },
+    onPickElement: (element) => {
+      pickElement(state, element, rng);
       draw();
     },
     onRestart: () => start(),

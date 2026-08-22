@@ -100,16 +100,18 @@ export const PAIR_TABLE: ChoicePair[] = [
   },
 
   {
+    // 원하는 속성을 지정할 수 있는 짝이라 희소도가 높다 — 조합을 노리는
+    // 플레이어에게는 무작위 세 장보다 지정 한 장이 훨씬 크다.
     id: 'quality-or-bulk',
-    rarity: 'common',
-    intent: '질이냐 양이냐',
+    rarity: 'rare',
+    intent: '고를 수 있는 한 장이냐, 고를 수 없는 세 장이냐',
     red: {
-      text: '덱에 보상 1장을 넣는다',
-      effects: [{ type: 'addRandom', kind: 'reward', count: 1 }],
+      text: '원하는 속성 1장을 골라 덱에 넣는다',
+      effects: [{ type: 'chooseElement', count: 1 }],
     },
     blue: {
-      text: '덱에 중립 3장을 넣는다',
-      effects: [{ type: 'addRandom', kind: 'neutral', count: 3 }],
+      text: '덱에 무작위 속성 3장을 넣는다',
+      effects: [{ type: 'addRandom', kind: 'element', count: 3 }],
     },
   },
 
@@ -149,32 +151,36 @@ export const PAIR_TABLE: ChoicePair[] = [
     rarity: 'common',
     intent: '체력을 팔아 덱을 살 것인가',
     red: {
-      text: '덱에 보상 3장을 넣는다 — 체력을 4 잃는다',
+      text: '덱에 무작위 속성 3장을 넣는다 — 체력을 4 잃는다',
       effects: [
-        { type: 'addRandom', kind: 'reward', count: 3 },
+        { type: 'addRandom', kind: 'element', count: 3 },
         { type: 'damage', amount: 4 },
       ],
     },
     blue: {
-      text: '덱에 중립 2장을 넣는다',
-      effects: [{ type: 'addRandom', kind: 'neutral', count: 2 }],
+      text: '덱에 무작위 속성 2장을 넣는다',
+      effects: [{ type: 'addRandom', kind: 'element', count: 2 }],
     },
   },
 
   {
+    // 여기도 지정형이라 희소도가 높다. 다만 값을 필드에서 치른다 — 쌓아 둔
+    // 조합이 한 장 무너질 수 있으므로 "고를 수 있다"가 공짜가 아니다.
     id: 'future-costs-now',
-    rarity: 'uncommon',
-    intent: '미래를 사는 값을 현재에서 치른다',
+    rarity: 'rare',
+    intent: '미래를 사는 값을 현재의 필드에서 치른다',
     red: {
-      text: '덱에 보상 2장을 넣는다 — 필드의 무작위 1장이 사라진다',
+      // 필드가 먼저 깎이고 그 다음에 고른다 — 무엇이 사라졌는지 보고
+      // 어느 속성을 채울지 정할 수 있어야 판단이 성립한다.
+      text: '필드의 무작위 1장이 사라진다 — 원하는 속성 1장을 골라 덱에 넣는다',
       effects: [
-        { type: 'addRandom', kind: 'reward', count: 2 },
         { type: 'purgeRandom', count: 1 },
+        { type: 'chooseElement', count: 1 },
       ],
     },
     blue: {
-      text: '덱에 중립 3장을 넣는다',
-      effects: [{ type: 'addRandom', kind: 'neutral', count: 3 }],
+      text: '덱에 무작위 속성 3장을 넣는다',
+      effects: [{ type: 'addRandom', kind: 'element', count: 3 }],
     },
   },
 

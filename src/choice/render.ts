@@ -1,10 +1,25 @@
-import { CURSE_RULES, MAX_HP } from './balance';
-import { deckByKind, deckCurseBreakdown, fieldCurseBreakdown, summarize } from './engine';
-import { countShards, onEdge } from './field';
+import {
+  COMBO_SYNERGY_COUNT,
+  CURSE_RULES,
+  ELEMENT_ORDER,
+  ELEMENT_RULES,
+  ELEMENT_SYNERGY_COUNT,
+  MAX_HP,
+} from './balance';
+import {
+  deckByKind,
+  deckCurseBreakdown,
+  deckElementBreakdown,
+  fieldCurseBreakdown,
+  fieldElementBreakdown,
+  summarize,
+} from './engine';
+import { comboReady, countShards, elementsOnEdge, onEdge } from './field';
 import type {
   CardInstance,
   CardKind,
   CurseType,
+  ElementType,
   GameState,
   PairSide,
   Rarity,
@@ -21,6 +36,7 @@ export interface Handlers {
   onChoose: (side: 'red' | 'blue') => void;
   onPushDraw: () => void;
   onPushStop: () => void;
+  onPickElement: (element: ElementType) => void;
   onRestart: () => void;
 }
 
@@ -36,11 +52,29 @@ const RARITY_LABEL: Record<Rarity, string> = {
 };
 
 const KIND_LABEL: Record<CardKind, string> = {
-  reward: '보상',
-  neutral: '중립',
+  element: '속성',
   curse: '저주',
   shard: '파편',
 };
+
+/**
+ * 필드에 모인 것 하나를 "이름 N/문턱"으로 보여주는 태그.
+ *
+ * **저주와 속성이 같은 형식을 쓴다.** 규칙이 같으니 표시도 같아야 한다 —
+ * 좋은 것과 나쁜 것을 색으로만 구분하면 플레이어가 배울 것이 하나로 준다.
+ */
+function kindTag(
+  slug: string,
+  name: string,
+  count: number,
+  threshold: number | null,
+  near: boolean,
+  title: string,
+): string {
+  const meter = threshold === null ? `${count}` : `${count}/${threshold}`;
+  return `<span class="kindtag kindtag--${slug}${near ? ' is-near' : ''}" title="${title}"
+    >${name} <b>${meter}</b></span>`;
+}
 
 /**
  * 봉인된 색이면 버튼에 경고를 붙인다.
@@ -91,15 +125,20 @@ function lastingPanel(state: GameState): string {
  */
 function fieldPanel(state: GameState): string {
   const edged = onEdge(state.field);
+  const elemEdged = elementsOnEdge(state.field);
   const onField = fieldCurseBreakdown(state);
+  const elems = fieldElementBreakdown(state);
 
   const cards = state.field
     .map((card: CardInstance) => {
-      const onTheEdge = card.curseType !== undefined && edged.includes(card.curseType);
+      const onTheEdge =
+        (card.curseType !== undefined && edged.includes(card.curseType)) ||
+        (card.element !== undefined && elemEdged.includes(card.element));
       const cls = [
         'fcard',
         `fcard--${card.kind}`,
         card.curseType ? `fcard--${card.curseType}` : '',
+        card.element ? `fcard--${card.element}` : '',
         onTheEdge ? 'is-edge' : '',
       ]
         .filter(Boolean)
@@ -113,39 +152,110 @@ function fieldPanel(state: GameState): string {
     .join('');
 
   /**
-   * 종류별 현재 장수와 발동 문턱을 함께 보여준다 — "파멸 2/3".
-   * 문턱에 닿기 직전이면 강하게 경고한다. 침식은 문턱이 없어 장수만 센다.
+   * 속성과 저주를 같은 형식으로 나란히 둔다 — "불 3/5", "파멸 2/3".
+   * 규칙이 같으니 표시도 같다. 문턱에 닿기 직전이면 강조된다.
    */
-  const tally = (Object.keys(CURSE_RULES) as CurseType[])
+  const elemTally = ELEMENT_ORDER.map((t) => {
+    const rule = ELEMENT_RULES[t];
+    return kindTag(
+      t,
+      rule.name,
+      elems[t],
+      rule.threshold,
+      elemEdged.includes(t),
+      `${rule.name} — ${rule.target}에 작용한다. ${rule.description}`,
+    );
+  }).join('');
+
+  const curseTally = (Object.keys(CURSE_RULES) as CurseType[])
     .map((t) => {
       const rule = CURSE_RULES[t];
-      const n = onField[t];
-      const near = edged.includes(t);
-      const meter = rule.threshold === null ? `${n}` : `${n}/${rule.threshold}`;
-      return `<span class="cursekind cursekind--${t}${near ? ' is-near' : ''}"
-        title="${rule.name} — ${rule.target}을(를) 노린다. ${rule.description}"
-        >${rule.name} <b>${meter}</b></span>`;
+      return kindTag(
+        t,
+        rule.name,
+        onField[t],
+        rule.threshold,
+        edged.includes(t),
+        `${rule.name} — ${rule.target}을(를) 노린다. ${rule.description}`,
+      );
     })
     .join('');
 
-  const warnings = edged
-    .map((t) => {
+  /**
+   * 복합 시너지 진행도. 네 속성이 **각각** 문턱을 넘어야 하므로 합계로는
+   * 읽을 수 없다 — 넷을 따로 세워 두고 모자란 쪽이 눈에 걸리게 한다.
+   */
+  const ready = comboReady(state.field);
+  const comboParts = ELEMENT_ORDER.map((t) => {
+    const n = elems[t];
+    const done = n >= COMBO_SYNERGY_COUNT;
+    return `<span class="combo__part combo__part--${t}${done ? ' is-done' : ''}"
+      >${ELEMENT_RULES[t].name}<b>${n}</b></span>`;
+  }).join('');
+
+  const combo = `
+    <div class="combo${ready ? ' is-ready' : ''}"
+      title="네 속성이 각각 ${COMBO_SYNERGY_COUNT}장 이상이면 발동한다. 덱의 파편 1장을 필드로 꺼내고, 각 속성 ${COMBO_SYNERGY_COUNT}장씩 총 ${
+        COMBO_SYNERGY_COUNT * ELEMENT_ORDER.length
+      }장이 소멸한다. 단독 시너지보다 먼저 터진다.">
+      <span class="combo__label">복합 <i>각 ${COMBO_SYNERGY_COUNT}</i></span>
+      ${comboParts}
+    </div>`;
+
+  const warnings = [
+    ...elemEdged.map((t) => {
+      const rule = ELEMENT_RULES[t];
+      const left = ELEMENT_SYNERGY_COUNT - elems[t];
+      const head = left <= 1 ? `${rule.name} 한 장만 더면` : `${rule.name} ${left}장 더면`;
+      return `<span class="edgewarn edgewarn--${t}">${head} — ${rule.description}</span>`;
+    }),
+    ...edged.map((t) => {
       const rule = CURSE_RULES[t];
       const left = (rule.threshold ?? 0) - onField[t];
       const head = left <= 1 ? `${rule.name} 한 장만 더면` : `${rule.name} ${left}장 더면`;
       return `<span class="edgewarn edgewarn--${t}">${head} — ${rule.description}</span>`;
-    })
-    .join('');
+    }),
+  ].join('');
 
   return `
     <section class="field" aria-label="필드">
       <div class="field__head">
         <span class="field__label">필드 <b>${state.field.length}</b>장</span>
-        <span class="field__tally">${tally}</span>
+        <span class="field__tally">${elemTally}</span>
+        <span class="field__tally field__tally--curse">${curseTally}</span>
       </div>
+      ${combo}
       ${warnings ? `<div class="edgewarns">${warnings}</div>` : ''}
       <div class="fcards">${cards || '<p class="fcards__empty">아직 아무것도 펼치지 않았다</p>'}</div>
     </section>`;
+}
+
+/** 속성 지정 화면. 네 속성 중 하나를 골라 덱에 넣는다. */
+function pickView(state: GameState): string {
+  const pick = state.pick!;
+  const elems = fieldElementBreakdown(state);
+  const inDeck = deckElementBreakdown(state);
+
+  const buttons = ELEMENT_ORDER.map((t) => {
+    const rule = ELEMENT_RULES[t];
+    return `
+      <button class="ebtn ebtn--${t}" data-element="${t}">
+        <span class="ebtn__name">${rule.name}</span>
+        <span class="ebtn__state">필드 ${elems[t]}/${ELEMENT_SYNERGY_COUNT} · 덱 ${inDeck[t]}</span>
+        <span class="ebtn__desc">${rule.description}</span>
+      </button>`;
+  }).join('');
+
+  return `
+    <div class="epick">
+      <p class="epick__head">
+        어느 속성을 덱에 넣을까 — <b>${pick.count - pick.remaining + 1}</b>/${pick.count}장째
+      </p>
+      <div class="ebtns">${buttons}</div>
+      <section class="blog">${
+        pick.log.map((l) => `<p>${l}</p>`).join('') || '<p>고르면 덱으로 들어간다.</p>'
+      }</section>
+    </div>`;
 }
 
 /** 푸시 유어 럭 화면. 한 장씩 뽑으며 멈출지 정한다. */
@@ -221,7 +331,7 @@ function deckPanel(state: GameState): string {
   const s = summarize(state);
   const groups = deckByKind(state);
 
-  const bars = (['reward', 'neutral', 'curse', 'shard'] as CardKind[])
+  const bars = (['element', 'curse', 'shard'] as CardKind[])
     .map((kind) => {
       const n = s[kind];
       if (n === 0) return '';
@@ -230,7 +340,7 @@ function deckPanel(state: GameState): string {
     })
     .join('');
 
-  const counts = (['reward', 'neutral', 'curse', 'shard'] as CardKind[])
+  const counts = (['element', 'curse', 'shard'] as CardKind[])
     .map(
       (kind) =>
         `<span class="tally tally--${kind}"><b>${s[kind]}</b>${KIND_LABEL[kind]}</span>`,
@@ -267,11 +377,17 @@ function deckPanel(state: GameState): string {
         저주 <b>${s.curse}</b> / 전체 <b>${s.total}</b>
         <span class="curseratio__pct">${Math.round(s.taint * 100)}%</span>
       </div>
-      <p class="cursekinds__label">덱에 남아 아직 뽑힐 수 있는 저주</p>
+      <p class="cursekinds__label">덱에 남아 아직 뽑힐 수 있는 것</p>
+      <div class="cursekinds">${ELEMENT_ORDER.map(
+        (t) =>
+          `<span class="kindtag kindtag--${t}">${ELEMENT_RULES[t].name} <b>${
+            deckElementBreakdown(state)[t]
+          }</b></span>`,
+      ).join('')}</div>
       <div class="cursekinds">${(Object.keys(CURSE_RULES) as CurseType[])
         .map(
           (t) =>
-            `<span class="cursekind cursekind--${t}">${CURSE_RULES[t].name} <b>${
+            `<span class="kindtag kindtag--${t}">${CURSE_RULES[t].name} <b>${
               deckCurseBreakdown(state)[t]
             }</b></span>`,
         )
@@ -312,6 +428,8 @@ export function render(root: HTMLElement, state: GameState, handlers: Handlers):
       ${
         state.push
           ? pushView(state)
+          : state.pick
+          ? pickView(state)
           : state.dead
           ? `<div class="dead" role="status">
                <span class="dead__word">사망</span>
@@ -343,7 +461,7 @@ export function render(root: HTMLElement, state: GameState, handlers: Handlers):
             </div>
           `
       }
-      ${state.push ? '' : recentChanges(state)}
+      ${state.push || state.pick ? '' : recentChanges(state)}
     </main>
 
     ${lastingPanel(state)}
@@ -355,6 +473,11 @@ export function render(root: HTMLElement, state: GameState, handlers: Handlers):
 
   root.querySelectorAll<HTMLButtonElement>('.pick').forEach((el) => {
     el.addEventListener('click', () => handlers.onChoose(el.dataset.side as 'red' | 'blue'));
+  });
+  root.querySelectorAll<HTMLButtonElement>('.ebtn').forEach((el) => {
+    el.addEventListener('click', () =>
+      handlers.onPickElement(el.dataset.element as ElementType),
+    );
   });
   root.querySelector('#push-draw')?.addEventListener('click', handlers.onPushDraw);
   root.querySelector('#push-stop')?.addEventListener('click', handlers.onPushStop);

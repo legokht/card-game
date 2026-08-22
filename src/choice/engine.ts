@@ -7,15 +7,24 @@ import {
   RECENT_PAIRS,
   STARTING_DECK,
   TAINT_LEVELS,
+  elementDef,
 } from './balance';
 import { applyEffects, buildDeck, countKind } from './effects';
-import { countShards, curseCounts, drawOne, onEdge, onPlaced } from './field';
+import {
+  countShards,
+  curseCounts,
+  drawOne,
+  elementCounts,
+  onEdge,
+  onPlaced,
+} from './field';
 import { PAIR_TABLE } from './pairs';
 import type {
   CardInstance,
   CardKind,
   ChoicePair,
   CurseType,
+  ElementType,
   GameState,
 } from './types';
 
@@ -27,9 +36,8 @@ import type {
 
 export interface DeckSummary {
   total: number;
-  reward: number;
+  element: number;
   curse: number;
-  neutral: number;
   shard: number;
   /** 저주 비율 0~1. */
   taint: number;
@@ -47,6 +55,16 @@ export function fieldCurseBreakdown(state: GameState): Record<CurseType, number>
   return curseCounts(state.field);
 }
 
+/** 필드에 깔린 속성을 종류별로. 그대로 시너지 진행도다. */
+export function fieldElementBreakdown(state: GameState): Record<ElementType, number> {
+  return elementCounts(state.field);
+}
+
+/** 덱에 남아 있는 속성을 종류별로. 앞으로 무엇을 뽑을 수 있는지 보는 값이다. */
+export function deckElementBreakdown(state: GameState): Record<ElementType, number> {
+  return elementCounts(state.deck);
+}
+
 /** 덱에 남아 있는 저주를 종류별로. UI에 "파멸 2 / 부패 5 / 침식 3"으로 뜬다. */
 export function deckCurseBreakdown(state: GameState): Record<CurseType, number> {
   return curseCounts(state.deck);
@@ -61,9 +79,8 @@ export function summarize(state: GameState): DeckSummary {
 
   return {
     total,
-    reward: countKind(owned, 'reward'),
+    element: countKind(owned, 'element'),
     curse,
-    neutral: countKind(owned, 'neutral'),
     shard: countKind(owned, 'shard'),
     taint,
     taintLabel: level.label,
@@ -118,6 +135,7 @@ export function createGame(rng: Rng): GameState {
     dead: false,
     field: [],
     push: null,
+    pick: null,
     current: null,
     recent: [],
     log: [],
@@ -151,7 +169,7 @@ export function createGame(rng: Rng): GameState {
 
 /** 한쪽을 고르고 덱에 즉시 반영한 뒤 다음 선택지를 제시한다. */
 export function choose(state: GameState, side: 'red' | 'blue', rng: Rng): void {
-  if (state.escaped || state.dead || state.push || !state.current) return;
+  if (state.escaped || state.dead || state.push || state.pick || !state.current) return;
 
   const pair = state.current;
   const option = pair[side];
@@ -192,9 +210,31 @@ export function choose(state: GameState, side: 'red' | 'blue', rng: Rng): void {
   state.log.push(`${state.step}. [${side === 'red' ? '빨강' : '파랑'}] ${option.text}`);
   for (const c of changes) state.log.push(`   ${c}`);
 
-  // 푸시 유어 럭이 열렸으면 플레이어가 멈출 때까지 기다린다.
-  if (state.push) return;
+  // 푸시 유어 럭이나 속성 지정이 열렸으면 플레이어가 끝낼 때까지 기다린다.
+  if (state.push || state.pick) return;
 
+  advance(state, rng);
+}
+
+/**
+ * 속성 지정에서 한 장을 고른다. 다 고르면 모드가 닫히고 선택 루프가 이어진다.
+ *
+ * 덱에 넣는다 — 필드로 바로 가지 않는다. 고른 속성이 언제 나올지는 여전히
+ * 덱 사정이라, 지정은 조합을 확정하는 것이 아니라 확률을 기울이는 것이다.
+ */
+export function pickElement(state: GameState, element: ElementType, rng: Rng): void {
+  const pick = state.pick;
+  if (!pick || pick.remaining <= 0) return;
+
+  const def = elementDef(element);
+  state.deck.push(...buildDeck([def.id]));
+  pick.remaining -= 1;
+  pick.log.push(`${def.name} 1장을 덱에 넣었다`);
+
+  if (pick.remaining > 0) return;
+
+  state.log.push(`   속성 ${pick.count}장 지정 — ${pick.log.join(', ')}`);
+  state.pick = null;
   advance(state, rng);
 }
 
@@ -237,7 +277,9 @@ function die(state: GameState): void {
     ? '파멸이 쌓였다'
     : last.find((l) => l.includes('침식이 놓였다'))
       ? '침식에 체력이 깎였다'
-      : '체력이 바닥났다';
+      : last.find((l) => l.includes('필드의') && l.includes('소각'))
+        ? '어둠 시너지가 체력을 가져갔다'
+        : '체력이 바닥났다';
   state.causeOfDeath = cause;
   state.log.push(
     `사망 — ${cause}. 필드 ${state.field.length}장, 덱 ${state.deck.length}장 남음, ` +
@@ -269,12 +311,20 @@ export function pushDraw(state: GameState, rng: Rng): void {
   push.log.push(`${push.drawn}장째 — ${card.name}`);
 
   const triggered = onPlaced(state, card, rng);
-  if (triggered) {
-    if (edged) state.riskyDraws.paired += 1;
-    push.log.push(...triggered.lines);
-    push.stopped = true;
-    push.log.push('저주가 발동했다 — 뽑기가 여기서 끝난다');
+  if (!triggered) return;
+
+  push.log.push(...triggered.lines);
+
+  // 뽑기를 끊는 것은 저주뿐이다. 시너지는 이득이라 흐름을 멈출 이유가 없고,
+  // 오히려 "한 장 더"가 시너지를 완성할 수도 있어 계속 갈 이유가 된다.
+  if (triggered.source !== 'curse') {
+    if (triggered.fatal) push.stopped = true;
+    return;
   }
+
+  if (edged) state.riskyDraws.paired += 1;
+  push.stopped = true;
+  push.log.push('저주가 발동했다 — 뽑기가 여기서 끝난다');
 }
 
 /** 푸시 유어 럭을 접고 선택 루프로 돌아간다. */
@@ -328,7 +378,7 @@ function advance(state: GameState, rng: Rng): void {
 
 /** 종류별 장수를 세어 정렬된 목록으로. UI에서 덱 확인용. */
 export function deckByKind(state: GameState): { kind: CardKind; cards: { name: string; value: number; count: number }[] }[] {
-  const kinds: CardKind[] = ['reward', 'neutral', 'curse', 'shard'];
+  const kinds: CardKind[] = ['element', 'curse', 'shard'];
 
   const owned = ownedCards(state);
   return kinds.map((kind) => {
