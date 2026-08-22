@@ -116,12 +116,73 @@ function lastingPanel(state: GameState): string {
 }
 
 /**
+ * 필드의 스택 하나. 카드가 아니라 **종류가 단위다.**
+ *
+ * 낱장으로 흩어 놓으면 장수가 늘수록 무엇이 몇 장인지 세어야 한다. 종류별로
+ * 묶어 쌓으면 세지 않아도 보인다 — 진행도가 곧 스택의 높이다.
+ */
+interface FieldStack {
+  slug: string;
+  name: string;
+  threshold: number | null;
+  near: boolean;
+  title: string;
+  cards: CardInstance[];
+}
+
+/** 필드 스택의 고정 순서. 속성 넷, 저주 셋, 파편. */
+function fieldStacks(state: GameState): FieldStack[] {
+  const edged = onEdge(state.field);
+  const elemEdged = elementsOnEdge(state.field);
+
+  const elementStacks: FieldStack[] = ELEMENT_ORDER.map((t) => {
+    const rule = ELEMENT_RULES[t];
+    return {
+      slug: t,
+      name: rule.name,
+      threshold: rule.threshold,
+      near: elemEdged.includes(t),
+      title: `${rule.name} — ${rule.target}에 작용한다. ${rule.description}`,
+      cards: state.field.filter((c) => c.element === t),
+    };
+  });
+
+  const curseStacks: FieldStack[] = (Object.keys(CURSE_RULES) as CurseType[]).map((t) => {
+    const rule = CURSE_RULES[t];
+    return {
+      slug: t,
+      name: rule.name,
+      threshold: rule.threshold,
+      near: edged.includes(t),
+      title: `${rule.name} — ${rule.target}을(를) 노린다. ${rule.description}`,
+      cards: state.field.filter((c) => c.curseType === t),
+    };
+  });
+
+  const shards = state.field.filter((c) => c.kind === 'shard');
+  const shardStack: FieldStack = {
+    slug: 'shard',
+    name: '파편',
+    // 파편의 문턱은 곧 승리 조건이다. 다른 스택과 같은 형식으로 읽힌다.
+    threshold: state.escapeTarget,
+    near: shards.length >= state.escapeTarget - 1,
+    title: `탈출구 파편 — 필드에 ${state.escapeTarget}장 모이면 탈출한다`,
+    cards: shards,
+  };
+
+  return [...elementStacks, ...curseStacks, shardStack];
+}
+
+/**
  * 필드.
  *
- * 뽑은 카드가 계속 쌓이는 곳이라 장수가 많아져도 볼 수 있어야 한다.
- * 저주는 종류별로 색이 다르고, **같은 종류가 정확히 1장 있는 카드는 테두리가
- * 살아난다** — 한 장 더 뽑으면 겹친다는 뜻이다. 계산 없이 그 상태가 보이는 것이
- * 이 화면에서 가장 중요한 일이다.
+ * 종류별로 묶어 스파이더 솔리테어처럼 세로로 겹쳐 쌓는다. 장수가 아무리
+ * 늘어도 **무엇이 몇 장인지가 한눈에** 보여야 하기 때문이다. 스택 머리에
+ * 붙는 배지는 저주와 속성이 같은 형식을 쓰고, 문턱에 닿기 직전인 스택은
+ * 스택째로 살아난다 — 계산 없이 그 상태가 보이는 것이 이 화면의 일이다.
+ *
+ * 빈 종류도 자리를 지킨다. "파멸 0/3"이 사라지면 지금 안전한 것인지 아직
+ * 안 본 것인지 구분할 수 없다.
  */
 function fieldPanel(state: GameState): string {
   const edged = onEdge(state.field);
@@ -129,55 +190,34 @@ function fieldPanel(state: GameState): string {
   const onField = fieldCurseBreakdown(state);
   const elems = fieldElementBreakdown(state);
 
-  const cards = state.field
-    .map((card: CardInstance) => {
-      const onTheEdge =
-        (card.curseType !== undefined && edged.includes(card.curseType)) ||
-        (card.element !== undefined && elemEdged.includes(card.element));
-      const cls = [
-        'fcard',
-        `fcard--${card.kind}`,
-        card.curseType ? `fcard--${card.curseType}` : '',
-        card.element ? `fcard--${card.element}` : '',
-        onTheEdge ? 'is-edge' : '',
-      ]
-        .filter(Boolean)
-        .join(' ');
+  const stacks = fieldStacks(state)
+    .map((stack) => {
+      const pile = stack.cards
+        .map((card: CardInstance) => {
+          const cls = [
+            'fcard',
+            `fcard--${card.kind}`,
+            card.curseType ? `fcard--${card.curseType}` : '',
+            card.element ? `fcard--${card.element}` : '',
+          ]
+            .filter(Boolean)
+            .join(' ');
+          return `<div class="${cls}"><span class="fcard__name">${card.name}</span></div>`;
+        })
+        .join('');
+
       return `
-        <div class="${cls}">
-          <span class="fcard__name">${card.name}</span>
-          ${onTheEdge ? '<span class="fcard__note">한 장 더면 발동</span>' : ''}
+        <div class="stack stack--${stack.slug}${stack.near ? ' is-near' : ''}">
+          ${kindTag(
+            stack.slug,
+            stack.name,
+            stack.cards.length,
+            stack.threshold,
+            stack.near,
+            stack.title,
+          )}
+          <div class="stack__cards">${pile || '<span class="stack__empty">·</span>'}</div>
         </div>`;
-    })
-    .join('');
-
-  /**
-   * 속성과 저주를 같은 형식으로 나란히 둔다 — "불 3/5", "파멸 2/3".
-   * 규칙이 같으니 표시도 같다. 문턱에 닿기 직전이면 강조된다.
-   */
-  const elemTally = ELEMENT_ORDER.map((t) => {
-    const rule = ELEMENT_RULES[t];
-    return kindTag(
-      t,
-      rule.name,
-      elems[t],
-      rule.threshold,
-      elemEdged.includes(t),
-      `${rule.name} — ${rule.target}에 작용한다. ${rule.description}`,
-    );
-  }).join('');
-
-  const curseTally = (Object.keys(CURSE_RULES) as CurseType[])
-    .map((t) => {
-      const rule = CURSE_RULES[t];
-      return kindTag(
-        t,
-        rule.name,
-        onField[t],
-        rule.threshold,
-        edged.includes(t),
-        `${rule.name} — ${rule.target}을(를) 노린다. ${rule.description}`,
-      );
     })
     .join('');
 
@@ -221,12 +261,15 @@ function fieldPanel(state: GameState): string {
     <section class="field" aria-label="필드">
       <div class="field__head">
         <span class="field__label">필드 <b>${state.field.length}</b>장</span>
-        <span class="field__tally">${elemTally}</span>
-        <span class="field__tally field__tally--curse">${curseTally}</span>
       </div>
       ${combo}
       ${warnings ? `<div class="edgewarns">${warnings}</div>` : ''}
-      <div class="fcards">${cards || '<p class="fcards__empty">아직 아무것도 펼치지 않았다</p>'}</div>
+      <div class="stacks">${stacks}</div>
+      ${
+        state.field.length === 0
+          ? '<p class="fcards__empty">아직 아무것도 펼치지 않았다</p>'
+          : ''
+      }
     </section>`;
 }
 
