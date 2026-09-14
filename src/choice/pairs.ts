@@ -226,4 +226,168 @@ export const PAIR_TABLE: ChoicePair[] = [
       effects: [{ type: 'addRandom', kind: 'curse', count: 2 }],
     },
   },
+
+  {
+    id: '12',
+    rarity: 'rare',
+    intent: '유예할 것인가, 나눠 낼 것인가',
+    red: {
+      text: '앞으로 5회 동안 저주를 받지 않는다. 5회 뒤 저주 3장을 한 번에 받는다',
+      effects: [
+        {
+          type: 'lasting',
+          id: 'curse-grace',
+          label: '저주를 받지 않는다',
+          turns: 5,
+          damage: 0,
+          blockCurses: true,
+          onExpire: [{ type: 'addRandom', kind: 'curse', count: 3 }],
+        },
+      ],
+    },
+    blue: {
+      text: '앞으로 5회 동안 매 선택마다 체력 -1',
+      effects: [
+        {
+          type: 'lasting',
+          id: 'hp-drip',
+          label: '매 선택 체력 -1',
+          turns: 5,
+          damage: 1,
+        },
+      ],
+    },
+  },
+
+  {
+    id: '13',
+    rarity: 'uncommon',
+    intent: '20회를 버틸 수 있다고 믿는가',
+    red: {
+      text: '체력을 5 잃는다. 20회 뒤 파편 1장을 덱에 얻는다',
+      effects: [
+        { type: 'damage', amount: 5 },
+        {
+          type: 'lasting',
+          id: 'delayed-shard',
+          label: '파편 도착까지',
+          turns: 20,
+          damage: 0,
+          onExpire: [{ type: 'shard', count: 1 }],
+        },
+      ],
+    },
+    blue: {
+      text: '체력을 2 회복한다',
+      effects: [{ type: 'heal', amount: 2 }],
+    },
+  },
+
+  {
+    id: '14',
+    rarity: 'common',
+    intent: '어느 시너지로 갈지 방향 결정',
+    red: {
+      text: '덱의 무작위 3장을 모두 불로 바꾼다',
+      effects: [{ type: 'paintElement', element: 'fire', count: 3 }],
+    },
+    blue: {
+      text: '덱의 무작위 3장을 모두 물로 바꾼다',
+      effects: [{ type: 'paintElement', element: 'water', count: 3 }],
+    },
+  },
+
+  {
+    id: '15',
+    rarity: 'uncommon',
+    intent: '푸시 유어 럭 — 덱이 깨끗할수록 빨강이 강해진다',
+    red: {
+      text: '멈출 때까지 계속 뽑는다. 저주가 나오면 즉시 중단된다',
+      effects: [{ type: 'pushLuck' }],
+    },
+    blue: {
+      text: '덱에서 3장을 꺼낸다',
+      effects: [{ type: 'drawField', count: 3 }],
+    },
+  },
+
+  {
+    id: '16',
+    rarity: 'rare',
+    intent: '올인 — 체력이 가득할 때만 걸 만하다',
+    red: {
+      text: '체력 전부를 걸고 50% 확률로 파편 1장을 얻는다. 실패하면 체력이 1이 된다',
+      effects: [
+        {
+          type: 'coinFlip',
+          then: [{ type: 'shard', count: 1 }],
+          otherwise: [{ type: 'setHp', value: 1 }],
+        },
+      ],
+    },
+    blue: {
+      text: '체력을 5 회복한다',
+      effects: [{ type: 'heal', amount: 5 }],
+    },
+  },
+
+  {
+    id: '17',
+    rarity: 'common',
+    intent: '지금을 치울 것인가 — 필드가 위험하면 파랑',
+    red: {
+      text: '덱에서 3장을 꺼낸다',
+      effects: [{ type: 'drawField', count: 3 }],
+    },
+    blue: {
+      text: '덱에서 3장을 꺼내고 덱에 저주 1장을 넣는다. 필드의 저주 1장을 제거한다',
+      effects: [
+        { type: 'drawField', count: 3 },
+        { type: 'addRandom', kind: 'curse', count: 1 },
+        { type: 'purgeCurse', count: 1 },
+      ],
+    },
+  },
+
+  {
+    id: '18',
+    rarity: 'common',
+    intent: '나아갈 것인가 정비할 것인가',
+    red: {
+      text: '덱에서 3장을 꺼낸다',
+      effects: [{ type: 'drawField', count: 3 }],
+    },
+    blue: {
+      text: '아무것도 꺼내지 않고 덱의 저주 1장을 제거한다',
+      effects: [{ type: 'removeKind', kind: 'curse', count: 1 }],
+    },
+  },
+
+  {
+    id: '19',
+    rarity: 'uncommon',
+    intent: '완전한 공백. 양쪽이 동일하며 아무 효과도 없다. 지속 제약이 걸려 있을 경우 카운트만 소모된다',
+    red: {
+      text: '아무 일도 일어나지 않는다',
+      effects: [],
+    },
+    blue: {
+      text: '아무 일도 일어나지 않는다',
+      effects: [],
+    },
+  },
+
+  {
+    id: '20',
+    rarity: 'uncommon',
+    intent: '순수한 리스크 테이킹. 덱의 저주 비율이 답을 정한다',
+    red: {
+      text: '덱에서 10장을 꺼낸다',
+      effects: [{ type: 'drawField', count: 10 }],
+    },
+    blue: {
+      text: '아무 일도 일어나지 않는다',
+      effects: [],
+    },
+  },
 ];

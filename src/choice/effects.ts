@@ -5,11 +5,12 @@ import {
   countShards,
   drawToField,
   makeCurse,
-  peek,
+  sampleDeck,
   purgeAll,
   purgeCurse,
   purgeRandom,
   resolvePlaced,
+  cursesBlocked,
 } from './field';
 import type {
   CardInstance,
@@ -126,6 +127,9 @@ export function applyEffect(state: GameState, effect: Effect, rng: Rng): string[
     case 'addSpecific': {
       const added: string[] = [];
       for (let i = 0; i < effect.count; i++) {
+        if (cursesBlocked(state) && cardById(effect.cardId).kind === 'curse') {
+          return [`저주를 받지 않았다 (유예 중)`];
+        }
         const card = instantiate(effect.cardId);
         state.deck.push(card);
         added.push(card.name);
@@ -136,6 +140,9 @@ export function applyEffect(state: GameState, effect: Effect, rng: Rng): string[
     case 'addRandom': {
       const added: string[] = [];
       for (let i = 0; i < effect.count; i++) {
+        if (effect.kind === 'curse' && cursesBlocked(state)) {
+          return [`저주를 받지 않았다 (유예 중)`];
+        }
         // 저주는 종류별 덱 상한(특히 파멸)을 지켜야 하므로 makeCurse를 거친다.
         const card = effect.kind === 'curse' ? makeCurse(state, rng) : instantiate(rng.pick(poolOf(effect.kind)).id);
         state.deck.push(card);
@@ -163,6 +170,9 @@ export function applyEffect(state: GameState, effect: Effect, rng: Rng): string[
     }
 
     case 'transform': {
+      if (effect.to === 'curse' && cursesBlocked(state)) {
+        return [`저주를 받지 않았다 (유예 중)`];
+      }
       const targets = pickForRemoval(state.deck, effect.from, effect.count);
       removeCards(state, targets);
       const pool = poolOf(effect.to);
@@ -207,8 +217,13 @@ export function applyEffect(state: GameState, effect: Effect, rng: Rng): string[
       state.push = { drawn: 0, stopped: false, log: [] };
       return ['한 장씩 뽑는다 — 멈출 때까지'];
 
-    case 'peek':
-      return peek(state, effect.count, effect.keep, rng);
+    case 'peek': {
+      // 실제 고르기는 연출이 끝난 뒤 UI가 한다. 여기서는 확인할 장만 고른다.
+      const cards = sampleDeck(state, effect.count, rng);
+      if (cards.length === 0) return ['덱이 비어 볼 것이 없다'];
+      state.fate = { keep: Math.min(effect.keep, cards.length), cards };
+      return [`덱에서 ${cards.length}장을 확인한다`];
+    }
 
     case 'purgeCurse':
       return purgeCurse(state, effect.count, effect.curseType);
@@ -243,6 +258,10 @@ export function applyEffect(state: GameState, effect: Effect, rng: Rng): string[
       const added: string[] = [];
       for (let i = 0; i < effect.count; i++) {
         const kind = rng.pick(kinds);
+        if (kind === 'curse' && cursesBlocked(state)) {
+          added.push('저주 유예');
+          continue;
+        }
         // 저주는 종류별 덱 상한을 지켜야 하므로 makeCurse를 거친다.
         const card = kind === 'curse' ? makeCurse(state, rng) : instantiate(rng.pick(poolOf(kind)).id);
         state.deck.push(card);
@@ -259,21 +278,44 @@ export function applyEffect(state: GameState, effect: Effect, rng: Rng): string[
     }
 
     case 'lasting': {
-      // 같은 제약이 이미 걸려 있으면 남은 횟수를 새로 채운다 — 두 줄로 쌓이면
-      // 어느 쪽이 언제 풀리는지 화면에서 읽을 수 없다.
-      const existing = state.lasting.find((l) => l.id === effect.id);
-      if (existing) {
-        existing.remaining = effect.turns;
-        return [`${effect.label} — ${effect.turns}회로 다시 채워졌다`];
-      }
+      // 같은 종류라도 새로 걸면 별도 항목이다. 덮어쓰면 먼저 건 지연 보상이
+      // 사라지고 카운트만 리셋된다.
       state.lasting.push({
         id: effect.id,
         label: effect.label,
         remaining: effect.turns,
         damage: effect.damage,
         ...(effect.side ? { side: effect.side } : {}),
+        ...(effect.blockCurses ? { blockCurses: true } : {}),
+        ...(effect.onExpire ? { onExpire: effect.onExpire } : {}),
       });
       return [`${effect.label} (${effect.turns}회)`];
+    }
+
+    case 'paintElement': {
+      const candidates = state.deck.filter((c) => c.kind === 'element');
+      const picked = rng.shuffle(candidates).slice(0, effect.count);
+      if (picked.length === 0) return ['바꿀 속성 카드가 없었다'];
+      removeCards(state, picked);
+      const made: string[] = [];
+      for (let i = 0; i < picked.length; i++) {
+        const card = instantiate(effect.element);
+        state.deck.push(card);
+        made.push(card.name);
+      }
+      const short = picked.length < effect.count ? ` (${effect.count}장 중 ${picked.length}장뿐)` : '';
+      return [`${picked.map((t) => t.name).join(', ')} → ${made.join(', ')}${short}`];
+    }
+
+    case 'coinFlip': {
+      const branch = rng.next() < 0.5 ? effect.then : effect.otherwise;
+      const outcome = branch === effect.then ? '성공' : '실패';
+      return [`동전 ${outcome}`, ...branch.flatMap((e) => applyEffect(state, e, rng))];
+    }
+
+    case 'setHp': {
+      state.hp = effect.value;
+      return [`체력이 ${effect.value}이 되었다 (${state.hp}/${state.maxHp})`];
     }
   }
 }

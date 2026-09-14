@@ -16,7 +16,7 @@ export type CardKind = 'element' | 'curse' | 'shard';
  * - `fire` 불 → 덱의 저주를 태운다
  * - `water` 물 → 최대 체력을 늘린다
  * - `dark` 어둠 → 체력을 대가로 필드의 저주를 태운다
- * - `light` 빛 → 단독으로는 아무것도 하지 않는다. 복합 조합 전용이다
+ * - `light` 빛 → 체력을 채우고 덱에 저주를 넣는다
  */
 export type ElementType = 'fire' | 'water' | 'dark' | 'light';
 
@@ -134,7 +134,17 @@ export type Effect =
       turns: number;
       damage: number;
       side?: 'red' | 'blue';
-    };
+      /** 걸려 있는 동안 새로 들어오는 저주를 막는다. */
+      blockCurses?: boolean;
+      /** 횟수가 다하면 적용할 효과. 지연 보상·지연 대가. */
+      onExpire?: Effect[];
+    }
+  /** 덱의 속성 카드를 지정한 속성으로 바꾼다. 저주와 파편은 건드리지 않는다. */
+  | { type: 'paintElement'; element: ElementType; count: number }
+  /** 50%로 then, 아니면 otherwise. */
+  | { type: 'coinFlip'; then: Effect[]; otherwise: Effect[] }
+  /** 체력을 이 값으로 맞춘다. */
+  | { type: 'setHp'; value: number };
 
 /** 감정 축. 계산 없이도 어느 쪽인지 읽히게 하는 라벨. */
 export type Tone = 'greed' | 'safe' | 'now' | 'later' | 'gamble' | 'sure';
@@ -192,6 +202,10 @@ export interface LastingEffect {
   side?: 'red' | 'blue';
   /** 발동 시 입는 피해. */
   damage: number;
+  /** 걸려 있는 동안 새로 들어오는 저주를 막는다. */
+  blockCurses?: boolean;
+  /** 횟수가 다하면 적용할 효과. */
+  onExpire?: Effect[];
 }
 
 /** 선택 한 번의 기록. */
@@ -240,6 +254,18 @@ export interface PushState {
   log: string[];
 }
 
+/**
+ * 확인한 카드 중 일부를 고르는 중인 상태.
+ *
+ * 효과는 모드만 연다. 어떤 장을 가져올지는 연출이 끝난 뒤 UI가 정한다.
+ */
+export interface FateState {
+  /** 가져갈 장수. */
+  keep: number;
+  /** 공개된 카드. 아직 덱에 있다. */
+  cards: CardInstance[];
+}
+
 export interface GameState {
   /** 몇 번째 선택인지. 1부터. */
   step: number;
@@ -256,6 +282,8 @@ export interface GameState {
   push: PushState | null;
   /** 속성 지정 중이면 채워진다. 푸시와 마찬가지로 그 동안 선택 루프가 멈춘다. */
   pick: ElementPick | null;
+  /** 확인한 카드 중 고르는 중이면 채워진다. */
+  fate: FateState | null;
   /**
    * 탈출에 필요한 **필드** 파편 장수.
    *

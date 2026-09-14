@@ -1,6 +1,5 @@
 import type { Rng } from '../engine/rng';
 import {
-  COMBO_SYNERGY_COUNT,
   CURSE_BURN_ORDER,
   CURSE_RULES,
   DARK_HP_COST,
@@ -9,6 +8,7 @@ import {
   ELEMENT_RULES,
   ELEMENT_SYNERGY_COUNT,
   ERODE_DAMAGE,
+  LIGHT_HP_GAIN,
   MIN_MAX_HP,
   ROT_MAX_HP_LOSS,
   ROT_THRESHOLD,
@@ -69,6 +69,11 @@ export function countShards(cards: CardInstance[]): number {
   return cards.filter((c) => c.kind === 'shard').length;
 }
 
+/** 유예가 걸려 있으면 새로 들어오는 저주를 받지 않는다. */
+export function cursesBlocked(state: GameState): boolean {
+  return state.lasting.some((l) => l.blockCurses);
+}
+
 /** 속성별 장수. 필드에 쓰면 시너지 진행도가 된다. */
 export function elementCounts(cards: CardInstance[]): Record<ElementType, number> {
   const counts: Record<ElementType, number> = { fire: 0, water: 0, dark: 0, light: 0 };
@@ -112,21 +117,9 @@ export function elementsOnEdge(field: CardInstance[]): ElementType[] {
   return ELEMENT_ORDER.filter((t) => counts[t] === n - 1);
 }
 
-/**
- * 단독 시너지를 **지금 쓸 수 있는지.**
- *
- * 빛은 단독 효과가 없어 여기 들어오지 않는다 — 눌러도 5장이 사라질 뿐이라
- * 버튼으로 두면 함정이 된다. 빛은 복합 전용이다.
- */
+/** 속성 시너지를 **지금 쓸 수 있는지.** 네 속성 모두 같은 문턱이다. */
 export function canFireSingle(field: CardInstance[], element: ElementType): boolean {
-  if (element === 'light') return false;
   return elementCounts(field)[element] >= ELEMENT_SYNERGY_COUNT;
-}
-
-/** 복합 시너지를 지금 쓸 수 있는지. 네 속성이 각각 문턱만큼 있어야 한다. */
-export function comboReady(field: CardInstance[]): boolean {
-  const counts = elementCounts(field);
-  return ELEMENT_ORDER.every((t) => counts[t] >= COMBO_SYNERGY_COUNT);
 }
 
 export interface TriggerResult {
@@ -165,38 +158,7 @@ function burnCurse(pile: CardInstance[]): CardInstance | null {
 }
 
 /**
- * 복합 시너지를 **플레이어가 쓴다.** 조건이 차도 저절로 터지지 않는다.
- *
- * 자동이던 시절에는 넷이 맞춰지는 순간 12장이 사라져서, 조합을 더 키우거나
- * 다른 시너지를 먼저 쓰는 선택지가 아예 없었다. 언제 쓸지가 판단이 되려면
- * 조건이 찬 채로 기다릴 수 있어야 한다.
- *
- * 파편은 새로 만들지 않는다. 덱에 있어야만 꺼낼 수 있어서, 파편을 덱에 넣는
- * 3번 짝과 조합이 이어져야 비로소 탈출 진척이 된다.
- */
-export function fireCombo(state: GameState): string[] | null {
-  if (!comboReady(state.field)) return null;
-
-  for (const t of ELEMENT_ORDER) removeElementFromField(state, t, COMBO_SYNERGY_COUNT);
-  const burned = COMBO_SYNERGY_COUNT * ELEMENT_ORDER.length;
-
-  const lines = [
-    `복합 시너지 — 네 속성이 각각 ${COMBO_SYNERGY_COUNT}장씩 모였다 (${burned}장 소멸)`,
-  ];
-
-  const i = state.deck.findIndex((c) => c.kind === 'shard');
-  if (i < 0) {
-    lines.push('덱에 파편이 없어 꺼낼 것이 없었다');
-    return lines;
-  }
-
-  state.field.push(...state.deck.splice(i, 1));
-  lines.push(`덱의 탈출구 파편 1장을 필드로 꺼냈다 — 필드 파편 ${countShards(state.field)}장`);
-  return lines;
-}
-
-/**
- * 단독 시너지를 **플레이어가 쓴다.** 문턱을 넘겨 계속 쌓아 두는 것도 선택이다.
+ * 속성 시너지를 **플레이어가 쓴다.** 문턱을 넘겨 계속 쌓아 두는 것도 선택이다.
  *
  * 문턱을 넘겨도 **정확히 문턱만큼만** 소모한다. 7장을 들고 있다가 쓰면 5장이
  * 나가고 2장이 남는다 — 그래서 "지금 쓸까, 한 번 더 쓸 만큼 모을까"가 선다.
@@ -205,7 +167,7 @@ export function fireCombo(state: GameState): string[] | null {
  * 언제 쓰는지가 곧 판단이다. 물은 부패에 최대 체력을 깎인 뒤에 써야 이득이
  * 크고, 어둠은 체력이 버틸 때만 쓸 수 있다.
  */
-export function fireSingle(state: GameState, element: ElementType): string[] | null {
+export function fireSingle(state: GameState, element: ElementType, rng: Rng): string[] | null {
   if (!canFireSingle(state.field, element)) return null;
 
   const rule = ELEMENT_RULES[element];
@@ -233,11 +195,20 @@ export function fireSingle(state: GameState, element: ElementType): string[] | n
       break;
     }
 
-    case 'light':
-      // 의도된 설계다. 빛은 단독으로 아무것도 하지 않지만 복합에는 반드시
-      // 필요해서, "쓸모없어 보이지만 남겨둬야 하는 카드"라는 판단이 생긴다.
-      lines.push('빛은 단독으로는 아무것도 하지 않는다 — 복합 조합에만 쓰인다');
+    case 'light': {
+      const before = state.hp;
+      state.hp = Math.min(state.maxHp, state.hp + LIGHT_HP_GAIN);
+      const gained = state.hp - before;
+      lines.push(`체력 +${gained} (${state.hp}/${state.maxHp})`);
+      if (cursesBlocked(state)) {
+        lines.push('저주를 받지 않았다 (유예 중)');
+        break;
+      }
+      const curse = makeCurse(state, rng);
+      state.deck.push(curse);
+      lines.push(`덱에 ${curse.name} 1장을 넣었다`);
       break;
+    }
   }
 
   return lines;
@@ -419,19 +390,19 @@ export function purgeAll(state: GameState): string[] {
   return [`필드 ${size}장을 전부 쓸어냈다 (저주 ${curses}장 포함)`];
 }
 
-/** 덱 맨 위 count장을 보고 keep장만 필드로. 나머지는 덱에 그대로 남는다. */
-export function peek(state: GameState, count: number, keep: number, rng: Rng): string[] {
-  if (state.deck.length === 0) return ['덱이 비어 볼 것이 없다'];
+/** 덱에서 count장을 고른다. 순서는 섞이지만 덱 자체는 건드리지 않는다. */
+export function sampleDeck(state: GameState, count: number, rng: Rng): CardInstance[] {
+  if (state.deck.length === 0) return [];
+  return rng.shuffle(state.deck).slice(0, count);
+}
 
-  const seen = rng.shuffle(state.deck).slice(0, count);
-  // 멀쩡한 카드를 값어치 높은 순으로 고른다. 저주는 마지막에.
-  const ranked = [...seen].sort((a, b) => {
-    const ca = a.kind === 'curse' ? 1 : 0;
-    const cb = b.kind === 'curse' ? 1 : 0;
-    return ca - cb || b.value - a.value;
-  });
-  const taken = ranked.slice(0, keep);
-
+/** 확인한 카드 중 taken만 필드로 옮긴다. 나머지는 덱에 남는다. */
+export function applyPeekKeep(
+  state: GameState,
+  seen: CardInstance[],
+  taken: CardInstance[],
+  rng: Rng,
+): string[] {
   for (const card of taken) {
     const i = state.deck.findIndex((c) => c.uid === card.uid);
     if (i >= 0) state.field.push(...state.deck.splice(i, 1));
@@ -443,6 +414,20 @@ export function peek(state: GameState, count: number, keep: number, rng: Rng): s
   ];
   for (const t of resolvePlaced(state, taken, rng)) lines.push(...t.lines);
   return lines;
+}
+
+/** 덱 맨 위 count장을 보고 keep장만 필드로. 나머지는 덱에 그대로 남는다. */
+export function peek(state: GameState, count: number, keep: number, rng: Rng): string[] {
+  if (state.deck.length === 0) return ['덱이 비어 볼 것이 없다'];
+
+  const seen = sampleDeck(state, count, rng);
+  // 멀쩡한 카드를 값어치 높은 순으로 고른다. 저주는 마지막에.
+  const ranked = [...seen].sort((a, b) => {
+    const ca = a.kind === 'curse' ? 1 : 0;
+    const cb = b.kind === 'curse' ? 1 : 0;
+    return ca - cb || b.value - a.value;
+  });
+  return applyPeekKeep(state, seen, ranked.slice(0, keep), rng);
 }
 
 /** 속성 풀에서 필드로 바로 넣는다. 저주는 이 경로로 들어오지 않는다. */

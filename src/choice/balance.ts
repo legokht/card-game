@@ -10,7 +10,7 @@ import type { CardDef, CurseType, ElementType, Rarity } from './types';
  * 파편을 **덱에 넣는** 것은 3번 짝(매우 희귀)의 빨강뿐이다. 그래서 이 값과
  * PAIR_RARITY_WEIGHT.ultra가 함께 한 판의 길이를 정한다.
  *
- * 덱의 파편을 **필드로 꺼내는** 길은 뽑기와 복합 시너지 둘이다.
+ * 덱의 파편을 **필드로 꺼내는** 길은 뽑기다.
  */
 export const ESCAPE_TARGET = 3;
 
@@ -61,6 +61,30 @@ export const PAIR_RARITY_WEIGHT: Record<Rarity, number> = {
  * 막으면서 희소도 가중치가 거의 그대로 살아난다.
  */
 export const RECENT_PAIRS = 3;
+
+/**
+ * 덱 장수에 따라 "넣는 짝 / 꺼내는 짝" 등장 가중치를 흔든다.
+ *
+ * 이상적인 두께는 15~40장. 마르면 게임이 멈추고, 두꺼우면 저주와 파편이
+ * 희석된다. 구간과 배율은 여기만 만지면 된다.
+ */
+/** 이 장수 이하면 넣는 짝을 크게 올리고 꺼내는 짝을 낮춘다. */
+export const DECK_THIN_AT = 10;
+/** 이 장수 이상이면 꺼내는 짝을 올리고 넣는 짝을 낮춘다. */
+export const DECK_THICK_AT = 40;
+/** 덱 패널 경고. 이 장수 이하면 마른다. */
+export const DECK_WARN_AT = 5;
+
+/** 얇은 덱에서 넣는 짝 배율. */
+export const PAIR_INSERT_WEIGHT_THIN = 2.8;
+/** 얇은 덱에서 꺼내는 짝 배율. */
+export const PAIR_DRAW_WEIGHT_THIN = 0.22;
+/** 두꺼운 덱에서 넣는 짝 배율. */
+export const PAIR_INSERT_WEIGHT_THICK = 0.35;
+/** 두꺼운 덱에서 꺼내는 짝 배율. */
+export const PAIR_DRAW_WEIGHT_THICK = 2.4;
+/** 중간 구간(11~39장) 배율. 넣는 쪽과 꺼내는 쪽 모두. */
+export const PAIR_FLOW_WEIGHT_MID = 1;
 
 /* ---------- 지속 효과 ---------- */
 
@@ -132,18 +156,14 @@ export const FIELD_START = 0;
  */
 export const ELEMENT_SYNERGY_COUNT = 5;
 
-/**
- * 복합 시너지가 터지는 속성별 필드 장수. 네 속성이 **각각** 이만큼 있어야 한다.
- *
- * 발동하면 네 속성에서 이 수만큼씩, 총 `4 × 이 값`장이 소멸한다.
- */
-export const COMBO_SYNERGY_COUNT = 3;
-
 /** 물 시너지가 올리는 최대 체력. 부패가 깎은 것을 되찾는 유일한 길이다. */
 export const WATER_MAX_HP_GAIN = 3;
 
 /** 어둠 시너지가 무는 체력. 필드의 저주를 태우는 값이다. */
 export const DARK_HP_COST = 3;
+
+/** 빛 시너지가 회복하는 체력. 대가로 덱에 저주가 한 장 들어간다. */
+export const LIGHT_HP_GAIN = 5;
 
 export interface ElementRule {
   type: ElementType;
@@ -161,9 +181,9 @@ export interface ElementRule {
  *
  * 좋은 것과 나쁜 것이 같은 규칙으로 움직이므로 플레이어가 배울 것이 하나뿐이다.
  *
- * 빛만 단독 효과가 없다. 의도된 설계다 — 지금은 아무것도 하지 않지만 복합
- * 조합에는 반드시 필요해서, "쓸모없어 보이지만 남겨둬야 하는 카드"라는 판단이
- * 생긴다.
+ * 불·물은 미래를 다루고, 어둠·빛은 지금을 다룬다. 어둠과 빛은 반대 방향의
+ * 즉효 수단이다 — 어둠은 체력을 내고 지금을 정리하고, 빛은 미래를 팔아
+ * 지금을 채운다.
  */
 export const ELEMENT_RULES: Record<ElementType, ElementRule> = {
   fire: {
@@ -191,8 +211,8 @@ export const ELEMENT_RULES: Record<ElementType, ElementRule> = {
     type: 'light',
     name: '빛',
     threshold: ELEMENT_SYNERGY_COUNT,
-    target: '복합 조합',
-    description: '단독 효과가 없다 — 복합 시너지에만 쓰인다',
+    target: '체력',
+    description: `필드에 ${ELEMENT_SYNERGY_COUNT}장 모이면 체력 +${LIGHT_HP_GAIN}, 덱에 저주 1장을 넣는다`,
   },
 };
 
@@ -313,9 +333,8 @@ export function curseWeights(deckCounts: Record<CurseType, number>): CurseType[]
 /**
  * 시작 덱 15장. 속성 4종 각 3장, 저주 3종 각 1장.
  *
- * **네 속성이 완전히 균등하다.** 시작 덱이 어느 조합도 편들지 않으므로 불로
- * 갈지 물로 갈지, 아니면 넷을 3장씩 맞춰 복합을 노릴지가 전부 플레이어의
- * 선택이 된다 — 시작 시점에 복합 문턱(각 3장)에 정확히 걸쳐 있다.
+ * **네 속성이 완전히 균등하다.** 시작 덱이 어느 조합도 편들지 않으므로 어떤
+ * 시너지를 먼저 모을지가 전부 플레이어의 선택이 된다.
  *
  * **저주는 종류마다 한 장씩 섞여 있다.** 한때는 한 장도 없었다 — "덱에
  * 들어오는 저주는 전부 선택의 결과라야 내가 넣은 저주가 날 죽인다가

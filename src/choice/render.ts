@@ -1,25 +1,25 @@
 import {
-  COMBO_SYNERGY_COUNT,
   CURSE_RULES,
+  DECK_WARN_AT,
   ELEMENT_ORDER,
   ELEMENT_RULES,
   ELEMENT_SYNERGY_COUNT,
   DARK_HP_COST,
+  LIGHT_HP_GAIN,
   MAX_HP,
+  TAINT_LEVELS,
   WATER_MAX_HP_GAIN,
 } from './balance';
+import { HP_DANGER_RATIO } from './hp-fx';
 import {
-  deckByKind,
   deckCurseBreakdown,
   deckElementBreakdown,
   fieldCurseBreakdown,
   fieldElementBreakdown,
-  summarize,
 } from './engine';
-import { canFireSingle, comboReady, countShards, elementsOnEdge, onEdge } from './field';
+import { canFireSingle, countShards, elementsOnEdge, onEdge } from './field';
 import type {
   CardInstance,
-  CardKind,
   CurseType,
   ElementType,
   GameState,
@@ -39,8 +39,16 @@ export interface Handlers {
   onPushDraw: () => void;
   onPushStop: () => void;
   onPickElement: (element: ElementType) => void;
-  onUseSynergy: (target: ElementType | 'combo') => void;
+  onUseSynergy: (target: ElementType) => void;
   onRestart: () => void;
+  onHelp: () => void;
+}
+
+function fateView(): string {
+  return `
+    <div class="fate-wait" aria-live="polite">
+      <p class="fate-wait__head">카드를 확인한다</p>
+    </div>`;
 }
 
 /**
@@ -60,18 +68,12 @@ const RARITY_LABEL: Record<Rarity, string> = {
  * 규칙 설명(ELEMENT_RULES.description)은 "5장 모이면 ~"이라 조건을 말한다.
  * 버튼 위에는 조건이 아니라 **결과**가 떠야 한다 — 이미 조건은 찼으니까.
  *
- * 빛은 여기 없다. 단독 효과가 없어 누를 수 없다.
  */
-const SYNERGY_EFFECT: Partial<Record<ElementType, string>> = {
+const SYNERGY_EFFECT: Record<ElementType, string> = {
   fire: '덱의 저주 1장 소각',
   water: `최대 체력 +${WATER_MAX_HP_GAIN}`,
   dark: `체력 -${DARK_HP_COST}, 필드의 저주 1장 소각`,
-};
-
-const KIND_LABEL: Record<CardKind, string> = {
-  element: '속성',
-  curse: '저주',
-  shard: '파편',
+  light: `체력 +${LIGHT_HP_GAIN}, 덱에 저주 1장`,
 };
 
 /**
@@ -117,17 +119,20 @@ function optionButton(side: 'red' | 'blue', option: PairSide, state: GameState):
 function lastingPanel(state: GameState): string {
   if (state.lasting.length === 0) return '';
   const rows = state.lasting
-    .map(
-      (l) => `
+    .map((l) => {
+      const left = l.onExpire
+        ? `<b>${l.remaining}</b>회`
+        : `남은 <b>${l.remaining}</b>회`;
+      return `
       <li class="lasting__row${l.side ? ` lasting__row--${l.side}` : ''}">
         <span class="lasting__label">${l.label}</span>
-        <span class="lasting__left">남은 <b>${l.remaining}</b>회</span>
-      </li>`,
-    )
+        <span class="lasting__left">${left}</span>
+      </li>`;
+    })
     .join('');
   return `
-    <section class="lasting" aria-label="걸려 있는 제약">
-      <p class="lasting__head">걸려 있는 제약</p>
+    <section class="lasting" aria-label="걸려 있는 효과">
+      <p class="lasting__head">걸려 있는 효과</p>
       <ul class="lasting__list">${rows}</ul>
     </section>`;
 }
@@ -160,16 +165,13 @@ function fieldStacks(state: GameState): FieldStack[] {
   const elementStacks: FieldStack[] = ELEMENT_ORDER.map((t) => {
     const rule = ELEMENT_RULES[t];
     const ready = canFireSingle(state.field, t);
-    const usable = SYNERGY_EFFECT[t] !== undefined;
     return {
       slug: t,
       name: rule.name,
-      // 빛에는 단독 문턱이 없다. "빛 6/5"라고 적으면 쓸 수 있는데 안 쓰는
-      // 것처럼 읽힌다 — 장수만 세고, 복합 전용이라는 사실을 대신 붙인다.
-      threshold: usable ? rule.threshold : null,
-      near: usable && elemEdged.includes(t),
+      threshold: rule.threshold,
+      near: elemEdged.includes(t),
       ready,
-      effect: ready ? SYNERGY_EFFECT[t] ?? null : usable ? null : '복합 전용',
+      effect: ready ? SYNERGY_EFFECT[t] : null,
       title: `${rule.name} — ${rule.target}에 작용한다. ${rule.description}`,
       cards: state.field.filter((c) => c.element === t),
     };
@@ -221,81 +223,56 @@ function fieldPanel(state: GameState): string {
   const edged = onEdge(state.field);
   const elemEdged = elementsOnEdge(state.field);
   const onField = fieldCurseBreakdown(state);
-  const elems = fieldElementBreakdown(state);
 
-  const stacks = fieldStacks(state)
-    .map((stack) => {
-      const pile = stack.cards
-        .map((card: CardInstance) => {
-          const cls = [
-            'fcard',
-            `fcard--${card.kind}`,
-            card.curseType ? `fcard--${card.curseType}` : '',
-            card.element ? `fcard--${card.element}` : '',
-          ]
-            .filter(Boolean)
-            .join(' ');
-          return `<div class="${cls}"><span class="fcard__name">${card.name}</span></div>`;
-        })
-        .join('');
+  const all = fieldStacks(state);
+  const curseN = (Object.keys(CURSE_RULES) as CurseType[]).length;
+  const elementStacks = all.slice(0, ELEMENT_ORDER.length);
+  const curseStacks = all.slice(ELEMENT_ORDER.length, ELEMENT_ORDER.length + curseN);
+  const rest = all.slice(ELEMENT_ORDER.length + curseN);
 
-      const badge = kindTag(
-        stack.slug,
-        stack.name,
-        stack.cards.length,
-        stack.threshold,
-        stack.near || stack.ready,
-        stack.title,
-      );
-      const body = `
+  const renderStack = (stack: FieldStack): string => {
+    const pile = stack.cards
+      .map((card: CardInstance) => {
+        const cls = [
+          'fcard',
+          `fcard--${card.kind}`,
+          card.curseType ? `fcard--${card.curseType}` : '',
+          card.element ? `fcard--${card.element}` : '',
+        ]
+          .filter(Boolean)
+          .join(' ');
+        return `<div class="${cls}"><span class="fcard__name">${card.name}</span></div>`;
+      })
+      .join('');
+
+    const badge = kindTag(
+      stack.slug,
+      stack.name,
+      stack.cards.length,
+      stack.threshold,
+      stack.near || stack.ready,
+      stack.title,
+    );
+    const body = `
         ${badge}
         <div class="stack__cards">${pile || '<span class="stack__empty">·</span>'}</div>
         ${stack.effect ? `<span class="stack__use">${stack.effect}</span>` : ''}`;
 
-      // 쓸 수 있을 때만 버튼이 된다. 그 외에는 눌러도 아무 일이 없어야 하므로
-      // 아예 누를 수 없는 것으로 둔다 — 눌리는데 안 되는 것이 제일 나쁘다.
-      return stack.ready
-        ? `<button class="stack stack--${stack.slug} is-ready" data-synergy="${stack.slug}"
+    return stack.ready
+      ? `<button class="stack stack--${stack.slug} is-ready" data-synergy="${stack.slug}"
              title="${stack.title}\n누르면 ${ELEMENT_SYNERGY_COUNT}장을 써서 발동한다">${body}</button>`
-        : `<div class="stack stack--${stack.slug}${stack.near ? ' is-near' : ''}">${body}</div>`;
-    })
-    .join('');
-
-  /**
-   * 복합 시너지 진행도. 네 속성이 **각각** 문턱을 넘어야 하므로 합계로는
-   * 읽을 수 없다 — 넷을 따로 세워 두고 모자란 쪽이 눈에 걸리게 한다.
-   */
-  const ready = comboReady(state.field);
-  const comboParts = ELEMENT_ORDER.map((t) => {
-    const n = elems[t];
-    const done = n >= COMBO_SYNERGY_COUNT;
-    return `<span class="combo__part combo__part--${t}${done ? ' is-done' : ''}"
-      >${ELEMENT_RULES[t].name}<b>${n}</b></span>`;
-  }).join('');
-
-  const comboTitle = `네 속성이 각각 ${COMBO_SYNERGY_COUNT}장 이상이면 쓸 수 있다. 덱의 파편 1장을 필드로 꺼내고, 각 속성 ${COMBO_SYNERGY_COUNT}장씩 총 ${
-    COMBO_SYNERGY_COUNT * ELEMENT_ORDER.length
-  }장이 소멸한다.`;
-  const comboBody = `
-    <span class="combo__label">복합 <i>각 ${COMBO_SYNERGY_COUNT}</i></span>
-    ${comboParts}
-    ${ready ? '<span class="stack__use">덱의 파편 1장을 필드로</span>' : ''}`;
-
-  const combo = ready
-    ? `<button class="combo is-ready" data-synergy="combo" title="${comboTitle}">${comboBody}</button>`
-    : `<div class="combo" title="${comboTitle}">${comboBody}</div>`;
+      : `<div class="stack stack--${stack.slug}${stack.near ? ' is-near' : ''}">${body}</div>`;
+  };
 
   const warnings = [
     // 속성은 닥치는 것이 아니라 쓰는 것이라 경고가 아니라 예고다.
     // 쓸 수 있게 된 뒤에는 스택 자체가 버튼이 되므로 여기서는 빠진다.
-    ...elemEdged
-      .filter((t) => SYNERGY_EFFECT[t] !== undefined)
-      .map(
-        (t) =>
-          `<span class="edgewarn edgewarn--${t}">${ELEMENT_RULES[t].name} 한 장만 더면 쓸 수 있다 — ${
-            SYNERGY_EFFECT[t]
-          }</span>`,
-      ),
+    ...elemEdged.map(
+      (t) =>
+        `<span class="edgewarn edgewarn--${t}">${ELEMENT_RULES[t].name} 한 장만 더면 쓸 수 있다 — ${
+          SYNERGY_EFFECT[t]
+        }</span>`,
+    ),
     ...edged.map((t) => {
       const rule = CURSE_RULES[t];
       const left = (rule.threshold ?? 0) - onField[t];
@@ -309,9 +286,12 @@ function fieldPanel(state: GameState): string {
       <div class="field__head">
         <span class="field__label">필드 <b>${state.field.length}</b>장</span>
       </div>
-      ${combo}
       ${warnings ? `<div class="edgewarns">${warnings}</div>` : ''}
-      <div class="stacks">${stacks}</div>
+      <div class="stacks">
+        <div class="field__elements">${elementStacks.map(renderStack).join('')}</div>
+        <div class="field__curses">${curseStacks.map(renderStack).join('')}</div>
+        ${rest.map(renderStack).join('')}
+      </div>
       ${
         state.field.length === 0
           ? '<p class="fcards__empty">아직 아무것도 펼치지 않았다</p>'
@@ -379,17 +359,23 @@ function pushView(state: GameState): string {
 
 /** 체력. 저주 피해를 받는 대상이라 항상 보여야 한다. */
 function vitals(state: GameState): string {
-  const pct = Math.max(0, (state.hp / state.maxHp) * 100);
-  const low = state.hp <= state.maxHp * 0.34;
-  // 부패로 깎인 최대 체력은 회복으로 돌아오지 않는다. 얼마나 잃었는지가
-  // 보이지 않으면 "왜 회복해도 예전만 못한가"를 알 수 없다.
-  const lost = MAX_HP - state.maxHp;
+  const scale = Math.max(MAX_HP, state.maxHp);
+  const fillPct = (Math.max(0, state.hp) / scale) * 100;
+  const lockPct = Math.max(0, (scale - state.maxHp) / scale) * 100;
+  const low = state.maxHp > 0 && state.hp <= state.maxHp * HP_DANGER_RATIO;
+  const barW = Math.round(148 * (scale / MAX_HP));
+  // 부패로 깎인 최대 체력은 회복으로 돌아오지 않는다. 검은 잠금 구간이
+  // 그 자리를 대신 차지한다.
+  const lost = Math.max(0, MAX_HP - state.maxHp);
   return `
     <div class="vitals">
       <span class="top__label">체력</span>
       <div class="vitals__row">
         <b class="${low ? 'is-low' : ''}">${state.hp}<span class="of">/${state.maxHp}</span></b>
-        <div class="hpbar"><i class="${low ? 'is-low' : ''}" style="width:${pct}%"></i></div>
+        <div class="hpbar${low ? ' is-danger' : ''}" style="width:${barW}px">
+          <i class="hpbar__fill${low ? ' is-low' : ''}" style="width:${fillPct}%"></i>
+          <i class="hpbar__lock" style="width:${lockPct}%" title="부패로 깎여 되돌릴 수 없다"></i>
+        </div>
         ${lost > 0 ? `<span class="vitals__lost" title="부패로 깎여 되돌릴 수 없다">최대 ${MAX_HP} → ${state.maxHp}</span>` : ''}
       </div>
     </div>`;
@@ -417,74 +403,54 @@ function shardTrack(state: GameState): string {
     </div>`;
 }
 
+function deckStack(count: number): string {
+  if (count <= 0) {
+    return `<div class="deckstack is-empty" aria-hidden="true"><i class="deckstack__ghost"></i></div>`;
+  }
+  const layers = Math.max(1, Math.min(12, Math.ceil(count / 2)));
+  const cards = Array.from(
+    { length: layers },
+    (_, i) => `<i class="deckstack__card" style="--i:${i}"></i>`,
+  ).join('');
+  return `<div class="deckstack" style="--n:${layers}" aria-hidden="true">${cards}</div>`;
+}
+
 function deckPanel(state: GameState): string {
-  const s = summarize(state);
-  const groups = deckByKind(state);
-
-  const bars = (['element', 'curse', 'shard'] as CardKind[])
-    .map((kind) => {
-      const n = s[kind];
-      if (n === 0) return '';
-      const pct = (n / Math.max(1, s.total)) * 100;
-      return `<i class="seg seg--${kind}" style="width:${pct}%" title="${KIND_LABEL[kind]} ${n}"></i>`;
-    })
-    .join('');
-
-  const counts = (['element', 'curse', 'shard'] as CardKind[])
-    .map(
-      (kind) =>
-        `<span class="tally tally--${kind}"><b>${s[kind]}</b>${KIND_LABEL[kind]}</span>`,
-    )
-    .join('');
-
-  const lists = groups
-    .filter((g) => g.cards.length > 0)
-    .map(
-      (g) => `
-        <div class="pile">
-          <div class="pile__head pile__head--${g.kind}">${KIND_LABEL[g.kind]}</div>
-          <ul class="pile__list">
-            ${g.cards
-              .map(
-                (c) =>
-                  `<li><span class="pile__name">${c.name}</span>${
-                    c.count > 1 ? `<span class="pile__x">×${c.count}</span>` : ''
-                  }<span class="pile__val">${c.value}</span></li>`,
-              )
-              .join('')}
-          </ul>
-        </div>`,
-    )
-    .join('');
+  const total = state.deck.length;
+  const curse = state.deck.filter((c) => c.kind === 'curse').length;
+  const shard = countShards(state.deck);
+  const taint = total === 0 ? 0 : curse / total;
+  const level = TAINT_LEVELS.find((l) => taint < l.max) ?? TAINT_LEVELS[TAINT_LEVELS.length - 1]!;
+  const elems = deckElementBreakdown(state);
+  const curses = deckCurseBreakdown(state);
 
   return `
     <aside class="deck" aria-label="현재 덱">
+      ${deckStack(total)}
       <div class="deck__top">
-        <span class="deck__size"><b>${s.total}</b>장</span>
-        <span class="taint taint--${s.taintTone}">${s.taintLabel}</span>
+        <span class="deck__size${total <= DECK_WARN_AT ? ' is-warn' : ''}"><b>${total}</b>장</span>
+        <span class="taint taint--${level.tone}">${level.label}</span>
       </div>
+      ${
+        total <= DECK_WARN_AT
+          ? `<p class="deck__warn" role="status">덱이 마른다 — ${total}장</p>`
+          : ''
+      }
       <div class="curseratio">
-        저주 <b>${s.curse}</b> / 전체 <b>${s.total}</b>
-        <span class="curseratio__pct">${Math.round(s.taint * 100)}%</span>
+        저주 <b>${curse}</b> / 전체 <b>${total}</b>
+        <span class="curseratio__pct">${Math.round(taint * 100)}%</span>
       </div>
-      <p class="cursekinds__label">덱에 남아 아직 뽑힐 수 있는 것</p>
+      <p class="cursekinds__label">덱 구성</p>
       <div class="cursekinds">${ELEMENT_ORDER.map(
         (t) =>
-          `<span class="kindtag kindtag--${t}">${ELEMENT_RULES[t].name} <b>${
-            deckElementBreakdown(state)[t]
-          }</b></span>`,
+          `<span class="kindtag kindtag--${t}">${ELEMENT_RULES[t].name} <b>${elems[t]}</b></span>`,
       ).join('')}</div>
       <div class="cursekinds">${(Object.keys(CURSE_RULES) as CurseType[])
         .map(
           (t) =>
-            `<span class="kindtag kindtag--${t}">${CURSE_RULES[t].name} <b>${
-              deckCurseBreakdown(state)[t]
-            }</b></span>`,
+            `<span class="kindtag kindtag--${t}">${CURSE_RULES[t].name} <b>${curses[t]}</b></span>`,
         )
-        .join('')}</div>
-      <div class="bar">${bars || '<i class="seg seg--none"></i>'}</div>
-      <div class="tallies">${counts}</div>
-      <div class="piles">${lists || '<p class="pile__empty">덱이 비었다</p>'}</div>
+        .join('')}<span class="kindtag kindtag--shard">파편 <b>${shard}</b></span></div>
     </aside>`;
 }
 
@@ -511,7 +477,10 @@ export function render(root: HTMLElement, state: GameState, handlers: Handlers):
       }</b></div>
       ${vitals(state)}
       ${shardTrack(state)}
-      <button id="restart" class="ghost">처음부터</button>
+      <div class="top__actions">
+        <button id="help" class="ghost" type="button">도움말</button>
+        <button id="restart" class="ghost" type="button">처음부터</button>
+      </div>
     </header>
 
     <main class="stage">
@@ -520,6 +489,8 @@ export function render(root: HTMLElement, state: GameState, handlers: Handlers):
           ? pushView(state)
           : state.pick
           ? pickView(state)
+          : state.fate
+          ? fateView()
           : state.dead
           ? `<div class="dead" role="status">
                <span class="dead__word">사망</span>
@@ -551,7 +522,7 @@ export function render(root: HTMLElement, state: GameState, handlers: Handlers):
             </div>
           `
       }
-      ${state.push || state.pick ? '' : recentChanges(state)}
+      ${state.push || state.pick || state.fate ? '' : recentChanges(state)}
     </main>
 
     ${lastingPanel(state)}
@@ -566,7 +537,7 @@ export function render(root: HTMLElement, state: GameState, handlers: Handlers):
   });
   root.querySelectorAll<HTMLButtonElement>('[data-synergy]').forEach((el) => {
     el.addEventListener('click', () =>
-      handlers.onUseSynergy(el.dataset.synergy as ElementType | 'combo'),
+      handlers.onUseSynergy(el.dataset.synergy as ElementType),
     );
   });
   root.querySelectorAll<HTMLButtonElement>('.ebtn').forEach((el) => {
@@ -576,6 +547,7 @@ export function render(root: HTMLElement, state: GameState, handlers: Handlers):
   });
   root.querySelector('#push-draw')?.addEventListener('click', handlers.onPushDraw);
   root.querySelector('#push-stop')?.addEventListener('click', handlers.onPushStop);
+  root.querySelector('#help')?.addEventListener('click', handlers.onHelp);
   root.querySelector('#restart')?.addEventListener('click', handlers.onRestart);
 
   const blog = root.querySelector('.blog');

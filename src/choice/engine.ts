@@ -1,8 +1,15 @@
 import type { Rng } from '../engine/rng';
 import {
+  DECK_THICK_AT,
+  DECK_THIN_AT,
   ESCAPE_TARGET,
   FIELD_START,
   MAX_HP,
+  PAIR_DRAW_WEIGHT_THICK,
+  PAIR_DRAW_WEIGHT_THIN,
+  PAIR_FLOW_WEIGHT_MID,
+  PAIR_INSERT_WEIGHT_THICK,
+  PAIR_INSERT_WEIGHT_THIN,
   PAIR_RARITY_WEIGHT,
   RECENT_PAIRS,
   STARTING_DECK,
@@ -13,9 +20,9 @@ import { applyEffects, buildDeck, countKind } from './effects';
 import {
   countShards,
   curseCounts,
+  applyPeekKeep,
   drawOne,
   elementCounts,
-  fireCombo,
   fireSingle,
   onEdge,
   onPlaced,
@@ -26,8 +33,10 @@ import type {
   CardKind,
   ChoicePair,
   CurseType,
+  Effect,
   ElementType,
   GameState,
+  PushState,
 } from './types';
 
 /**
@@ -90,27 +99,91 @@ export function summarize(state: GameState): DeckSummary {
   };
 }
 
+function effectsDrawFromDeck(effects: Effect[]): boolean {
+  for (const e of effects) {
+    if (e.type === 'drawField' || e.type === 'peek' || e.type === 'pushLuck') return true;
+    if (e.type === 'ifField' || e.type === 'ifThen' || e.type === 'coinFlip') {
+      if (effectsDrawFromDeck(e.then) || effectsDrawFromDeck(e.otherwise)) return true;
+    }
+    if (e.type === 'lasting' && e.onExpire && effectsDrawFromDeck(e.onExpire)) return true;
+  }
+  return false;
+}
+
+function effectsAddToDeck(effects: Effect[]): boolean {
+  for (const e of effects) {
+    if (
+      e.type === 'addSpecific' ||
+      e.type === 'addRandom' ||
+      e.type === 'addAny' ||
+      e.type === 'shard' ||
+      e.type === 'chooseElement'
+    ) {
+      return true;
+    }
+    if (e.type === 'ifField' || e.type === 'ifThen' || e.type === 'coinFlip') {
+      if (effectsAddToDeck(e.then) || effectsAddToDeck(e.otherwise)) return true;
+    }
+    if (e.type === 'lasting' && e.onExpire && effectsAddToDeck(e.onExpire)) return true;
+  }
+  return false;
+}
+
+function pairDraws(pair: ChoicePair): boolean {
+  return effectsDrawFromDeck(pair.red.effects) || effectsDrawFromDeck(pair.blue.effects);
+}
+
+function pairInserts(pair: ChoicePair): boolean {
+  return effectsAddToDeck(pair.red.effects) || effectsAddToDeck(pair.blue.effects);
+}
+
+function flowMultiplier(pair: ChoicePair, deckSize: number): number {
+  const draw = pairDraws(pair);
+  const insert = pairInserts(pair);
+  if (draw === insert) return PAIR_FLOW_WEIGHT_MID;
+  const thin = deckSize <= DECK_THIN_AT;
+  const thick = deckSize >= DECK_THICK_AT;
+  if (insert) {
+    if (thin) return PAIR_INSERT_WEIGHT_THIN;
+    if (thick) return PAIR_INSERT_WEIGHT_THICK;
+    return PAIR_FLOW_WEIGHT_MID;
+  }
+  if (thin) return PAIR_DRAW_WEIGHT_THIN;
+  if (thick) return PAIR_DRAW_WEIGHT_THICK;
+  return PAIR_FLOW_WEIGHT_MID;
+}
+
+function pairPickWeight(pair: ChoicePair, deckSize: number): number {
+  return PAIR_RARITY_WEIGHT[pair.rarity] * flowMultiplier(pair, deckSize);
+}
+
 /**
  * 다음 짝을 뽑는다.
  *
- * 짝은 고정된 테이블에서 통째로 나온다 — 조합하지 않는다. 희소도만이
- * "어떤 짝을 얼마나 자주 만나는가"를 정한다.
+ * 짝은 고정된 테이블에서 통째로 나온다 — 조합하지 않는다. 희소도와
+ * 지금 덱 장수가 "어떤 짝을 얼마나 자주 만나는가"를 정한다.
  *
- * 짝이 9개뿐이라 반복은 당연하고 의도된 것이다. 최근 몇 개만 걸러
+ * 덱이 비면 꺼내는 짝은 후보에서 뺀다. 최근 몇 개만 걸러
  * "방금 그거 또?"를 막되, 그 이상 거르면 순번 돌리기가 된다.
  */
 export function drawPair(state: GameState, rng: Rng): ChoicePair {
-  const fresh = PAIR_TABLE.filter((p) => !state.recent.includes(p.id));
-  const pool = fresh.length > 0 ? fresh : PAIR_TABLE;
+  const canShow = (p: ChoicePair) => state.deck.length > 0 || !pairDraws(p);
+  const fresh = PAIR_TABLE.filter((p) => !state.recent.includes(p.id) && canShow(p));
+  const rest = PAIR_TABLE.filter(canShow);
+  const pool = fresh.length > 0 ? fresh : rest.length > 0 ? rest : PAIR_TABLE;
 
   let total = 0;
-  for (const p of pool) total += PAIR_RARITY_WEIGHT[p.rarity];
-  let roll = rng.next() * total;
+  const weights = pool.map((p) => {
+    const w = pairPickWeight(p, state.deck.length);
+    total += w;
+    return w;
+  });
+  let roll = rng.next() * (total || 1);
   let picked = pool[pool.length - 1]!;
-  for (const p of pool) {
-    roll -= PAIR_RARITY_WEIGHT[p.rarity];
+  for (let i = 0; i < pool.length; i++) {
+    roll -= weights[i]!;
     if (roll <= 0) {
-      picked = p;
+      picked = pool[i]!;
       break;
     }
   }
@@ -138,6 +211,7 @@ export function createGame(rng: Rng): GameState {
     field: [],
     push: null,
     pick: null,
+    fate: null,
     current: null,
     recent: [],
     log: [],
@@ -171,7 +245,7 @@ export function createGame(rng: Rng): GameState {
 
 /** 한쪽을 고르고 덱에 즉시 반영한 뒤 다음 선택지를 제시한다. */
 export function choose(state: GameState, side: 'red' | 'blue', rng: Rng): void {
-  if (state.escaped || state.dead || state.push || state.pick || !state.current) return;
+  if (state.escaped || state.dead || state.push || state.pick || state.fate || !state.current) return;
 
   const pair = state.current;
   const option = pair[side];
@@ -194,6 +268,14 @@ export function choose(state: GameState, side: 'red' | 'blue', rng: Rng): void {
   // 지속 효과는 선택의 결과가 적용되기 전에 문다.
   const changes = tickLasting(state, side);
   changes.push(...applyEffects(state, option.effects, rng));
+  // 횟수가 다한 효과의 지연 대가는 이번 선택 효과가 끝난 뒤에 온다.
+  changes.push(...expireLasting(state, rng));
+
+  // 푸시 유어 럭은 모드만 열리고, 첫 장은 여기서 뽑는다 — 저주면 즉시 멈춘다.
+  const opened = state.push as PushState | null;
+  if (opened && opened.drawn === 0 && !opened.stopped) {
+    pushDraw(state, rng);
+  }
 
   // 저주는 필드에 놓이는 순간 뽑기 쪽에서 이미 판정됐다. 매 선택 끝에
   // 필드를 다시 훑지 않는다 — 그러면 같은 저주가 반복 발동한다.
@@ -213,7 +295,7 @@ export function choose(state: GameState, side: 'red' | 'blue', rng: Rng): void {
   for (const c of changes) state.log.push(`   ${c}`);
 
   // 푸시 유어 럭이나 속성 지정이 열렸으면 플레이어가 끝낼 때까지 기다린다.
-  if (state.push || state.pick) return;
+  if (state.push || state.pick || state.fate) return;
 
   advance(state, rng);
 }
@@ -251,17 +333,25 @@ function tickLasting(state: GameState, side: 'red' | 'blue'): string[] {
   const lines: string[] = [];
 
   for (const l of state.lasting) {
-    if (l.side === undefined || l.side === side) {
+    if ((l.side === undefined || l.side === side) && l.damage > 0) {
       state.hp -= l.damage;
       lines.push(`${l.label} — 체력 -${l.damage} (${Math.max(0, state.hp)}/${state.maxHp})`);
     }
     l.remaining -= 1;
   }
 
-  const expired = state.lasting.filter((l) => l.remaining <= 0);
-  for (const l of expired) lines.push(`${l.label} — 풀렸다`);
-  state.lasting = state.lasting.filter((l) => l.remaining > 0);
+  return lines;
+}
 
+/** 횟수가 다한 지속 효과를 거두고, 지연된 대가를 적용한다. */
+function expireLasting(state: GameState, rng: Rng): string[] {
+  const expired = state.lasting.filter((l) => l.remaining <= 0);
+  state.lasting = state.lasting.filter((l) => l.remaining > 0);
+  const lines: string[] = [];
+  for (const l of expired) {
+    lines.push(`${l.label} — 풀렸다`);
+    if (l.onExpire) lines.push(...applyEffects(state, l.onExpire, rng));
+  }
   return lines;
 }
 
@@ -271,6 +361,7 @@ function die(state: GameState): void {
   state.dead = true;
   state.current = null;
   state.push = null;
+  state.fate = null;
 
   // 마지막 몇 줄에서 사인을 읽는다. 저주마다 노리는 것이 달라서, 무엇에
   // 죽었는지가 곧 "이번 판은 어느 저주가 위험했는가"의 답이 된다.
@@ -315,12 +406,65 @@ export function pushDraw(state: GameState, rng: Rng): void {
   // 뽑기를 끊는 것은 저주뿐이다. 시너지는 조건이 차도 저절로 터지지 않으므로
   // 뽑던 흐름을 건드리지 않는다 — 오히려 "한 장 더"가 시너지를 완성시킨다.
   const triggered = onPlaced(state, card, rng);
+  if (card.kind === 'curse') {
+    if (edged) state.riskyDraws.paired += 1;
+    if (triggered) push.log.push(...triggered.lines);
+    push.stopped = true;
+    push.log.push('저주가 나왔다 — 뽑기가 여기서 끝난다');
+    return;
+  }
   if (triggered) {
     if (edged) state.riskyDraws.paired += 1;
     push.log.push(...triggered.lines);
     push.stopped = true;
     push.log.push('저주가 발동했다 — 뽑기가 여기서 끝난다');
   }
+}
+
+/**
+ * 확인한 카드 중 고른 장을 필드로 옮기고 선택 루프를 이어간다.
+ *
+ * 어떤 장을 가져올지만 바뀐다. 필드로 옮긴 뒤의 판정은 엿보기와 같다.
+ */
+export function resolveFate(state: GameState, takenUids: string[], rng: Rng): void {
+  const fate = state.fate;
+  if (!fate) return;
+
+  const taken: CardInstance[] = [];
+  for (const uid of takenUids) {
+    if (taken.length >= fate.keep) break;
+    const card = fate.cards.find((c) => c.uid === uid);
+    if (card && !taken.some((t) => t.uid === card.uid)) taken.push(card);
+  }
+
+  const lines = applyPeekKeep(state, fate.cards, taken, rng);
+  state.fate = null;
+
+  const rec = state.records[state.records.length - 1];
+  if (rec) rec.changes.push(...lines);
+  for (const line of lines) state.log.push(`   ${line}`);
+
+  state.fieldSizes.push(state.field.length);
+  noteDeckEmpty(state);
+  advance(state, rng);
+}
+
+/** 추적을 포기하고 확인한 장 중에서 무작위로 가져온다. 게임 난수는 쓰지 않는다. */
+export function abandonFate(state: GameState, rng: Rng): void {
+  const fate = state.fate;
+  if (!fate) return;
+  const pool = fate.cards.slice();
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const a = pool[i]!;
+    pool[i] = pool[j]!;
+    pool[j] = a;
+  }
+  resolveFate(
+    state,
+    pool.slice(0, fate.keep).map((c) => c.uid),
+    rng,
+  );
 }
 
 /** 푸시 유어 럭을 접고 선택 루프로 돌아간다. */
@@ -361,7 +505,7 @@ function advance(state: GameState, rng: Rng): void {
  * 판이 끝났는지만 본다. 다음 선택지는 세우지 않는다.
  *
  * 시너지 사용은 선택 한 번을 쓰지 않지만 판을 끝낼 수는 있다 — 어둠은 체력을
- * 가져가고, 복합은 마지막 파편을 꺼낼 수 있다. 그래서 판정만 따로 떼어 둔다.
+ * 가져간다. 그래서 판정만 따로 떼어 둔다.
  */
 function settle(state: GameState): boolean {
   if (state.hp <= 0) {
@@ -390,10 +534,10 @@ function settle(state: GameState): boolean {
  * 조건이 찬 채로 기다렸다가 원할 때 쓰는 것이 이 시스템의 전부라, 쓰는 데
  * 턴이 들면 "언제 쓸까"가 다시 "쓸 수 있을 때 쓴다"로 돌아간다.
  */
-export function useSynergy(state: GameState, target: ElementType | 'combo'): void {
-  if (state.escaped || state.dead || state.push || state.pick) return;
+export function useSynergy(state: GameState, target: ElementType, rng: Rng): void {
+  if (state.escaped || state.dead || state.push || state.pick || state.fate) return;
 
-  const lines = target === 'combo' ? fireCombo(state) : fireSingle(state, target);
+  const lines = fireSingle(state, target, rng);
   if (!lines) return;
 
   state.log.push(`${state.step}. [시너지]`);
