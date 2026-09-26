@@ -562,6 +562,11 @@ export async function playDeckFx(
   const deckNow = () => root.querySelector('.deckstack');
   const countEl = root.querySelector<HTMLElement>('.deck__size b');
   let shown = fromCount;
+  const paintDeckPile = (count: number) => {
+    const el = root.querySelector('.deckstack');
+    if (!el) return;
+    el.outerHTML = deckStack(count);
+  };
 
   try {
     await nextPaint();
@@ -583,12 +588,6 @@ export async function playDeckFx(
     pile.classList.remove('is-thump');
     void (pile as HTMLElement).offsetWidth;
     pile.classList.add('is-thump');
-  };
-
-  const paintDeckPile = (count: number) => {
-    const el = root.querySelector('.deckstack');
-    if (!el) return;
-    el.outerHTML = deckStack(count);
   };
 
   const vanishAll = async (gone: FxBeat[]) => {
